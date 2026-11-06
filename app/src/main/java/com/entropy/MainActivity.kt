@@ -151,7 +151,7 @@ class MainActivity : ComponentActivity() {
             ) {
                 ApplySystemBarAppearance(mode, this@MainActivity.window)
                 EntropyRoot(store, state, initialTab = intent.getStringExtra(EXTRA_TAB))
-                if (showUfo.value) UfoTestDialog(onClose = { showUfo.value = false })
+                if (showUfo.value) UfoTestDialog(store = store, onClose = { showUfo.value = false })
                 // 更新对话框挂在 Activity 而不是某一页上：用户可能在任何一页时被它拦住，
                 // 切页、进设置、返回都不该把已经下载好的包丢掉。
                 if (UpdateFlow.shouldDialog()) UpdatePromptDialog()

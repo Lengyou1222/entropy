@@ -46,8 +46,10 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -406,9 +408,19 @@ private fun BallConsole(
         }
     }, contentAlignment = Alignment.Center) {
         if (!expanded) {
+            // 小球以前是一团裸发光，和应用里"底板 + 发丝描边 + 顶部一道强调色渐变"的卡片
+            // 语言没有关系，贴在桌面上就像别人家的挂件。这里给它套一颗同族的小圆角方块：
+            // 底板取 overlayScrim、描边与渐变取温度色，用户换配色方案它就跟着换。
             Box(
                 Modifier
-                    .size((44 * ballScale * pop).dp)
+                    .size((46 * ballScale * pop).dp)
+                    .clip(RoundedCornerShape(15.dp))
+                    .background(entropy.overlayScrim.copy(alpha = 0.96f))
+                    .background(Brush.verticalGradient(
+                        listOf(tint.copy(alpha = 0.22f), Color.Transparent,
+                            tint.copy(alpha = 0.07f))))
+                    .border(BorderStroke(1.dp, tint.copy(alpha = 0.42f)),
+                        RoundedCornerShape(15.dp))
                     .pointerInput(Unit) {
                         // 这里不写 onDoubleTap：双击归 OverlayRootView 那一层数（见那里的注释）。
                         // 第一下由 onTap 展开卡片，第二下在 View 层配成对，才换得成整面控制台。
@@ -419,12 +431,16 @@ private fun BallConsole(
                     },
                 contentAlignment = Alignment.Center
             ) {
-                Atom(tint = tint, alert = fused, modifier = Modifier.fillMaxSize())
-                // 数字只在球够大时画：1.0 倍率下核径只有约 13dp，塞两个汉字会变成糊的一团
-                Text(
-                    if (ballScale >= 1.15f && tempC != null) "%.0f".format(tempC) else "熵",
-                    color = entropy.onScrim, fontSize = (10 * ballScale).sp, fontWeight = FontWeight.Bold
-                )
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    // 数字只在球够大时画：1.0 倍率下这一格只有约 30dp，塞两个汉字会变成糊的一团
+                    Atom(tint = tint, alert = fused, contained = true,
+                        modifier = Modifier.size(28.dp))
+                    Text(
+                        if (ballScale >= 1.15f && tempC != null) "%.0f℃".format(tempC) else "熵",
+                        color = entropy.onScrim, fontSize = (9 * ballScale).sp,
+                        fontWeight = FontWeight.Bold, maxLines = 1
+                    )
+                }
             }
         } else {
             BallConsoleCard(win, store, state, tint)
@@ -461,7 +477,8 @@ private fun BallConsoleCard(
             }
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Atom(tint = tint, alert = state.safety.fused, modifier = Modifier.size(26.dp))
+            Atom(tint = tint, alert = state.safety.fused, contained = true,
+                modifier = Modifier.size(26.dp))
             Spacer(Modifier.width(7.dp))
             Column {
                 Text("熵 · ${store.level.value.label}", color = entropy.onScrim,
@@ -529,7 +546,9 @@ private fun BallConsoleCard(
  * 一条永不聊束的 60fps 重绘。
  */
 @Composable
-private fun Atom(tint: Color, alert: Boolean, modifier: Modifier = Modifier) {
+private fun Atom(tint: Color, alert: Boolean, modifier: Modifier = Modifier,
+    contained: Boolean = false,
+) {
     val entropy = LocalEntropyColors.current
     val glow by animateColorAsState(
         targetValue = if (alert) entropy.warn else tint,
@@ -540,14 +559,22 @@ private fun Atom(tint: Color, alert: Boolean, modifier: Modifier = Modifier) {
     val rev = if (still) 0.22f else infinite01(2_800, "rev")
     val breathe = if (still) 1f else infiniteWave(2_200, 0.9f, 1.07f)
 
+    // 小球那颗芯片有底板了，辉光就不必再负责"抹掉硬边"；留强反而把描边冲成一团
+    val glowPeak = if (contained) 0.18f else 0.34f
+    val orbitAlpha = if (contained) 0.78f else 0.55f
+    val coreWhite = if (contained) 0.72f else 0.92f
+    // 电子在深底上是白点，但浅色配色方案的芯片底板本身就接近白，
+    // 白点落上去等于没画 —— 这一档改用界面墨色，和卡片上的字同一个明度
+    val spark = if (contained) entropy.onScrim.copy(alpha = 0.9f) else Color.White
+
     Canvas(modifier) {
         val r = size.minDimension / 2f
         val c = center
         // 辉光比轨道半径略大，边界完全淡出，这样小球贴在任何游戏画面上都没有硬边
         drawCircle(
             Brush.radialGradient(
-                colorStops = arrayOf(0f to glow.copy(alpha = 0.34f),
-                    0.55f to glow.copy(alpha = 0.13f), 1f to Color.Transparent),
+                colorStops = arrayOf(0f to glow.copy(alpha = glowPeak),
+                    0.55f to glow.copy(alpha = glowPeak * 0.38f), 1f to Color.Transparent),
                 center = c, radius = r),
             radius = r, center = c)
 
@@ -561,7 +588,7 @@ private fun Atom(tint: Color, alert: Boolean, modifier: Modifier = Modifier) {
             val phase = rev * 360f + i * 120f
             rotate(degrees = tilt, pivot = c) {
                 drawOval(
-                    color = glow.copy(alpha = if (alert) 0.85f else 0.55f),
+                    color = glow.copy(alpha = if (alert) 0.85f else orbitAlpha),
                     radiusX = major, radiusY = minor, center = c, strokeW = orbitW)
                 // 拖尾：电子后面 5 个点，半径与透明度同时衰减，读起来是一条弧线而不是五个点
                 for (k in 5 downTo 1) {
@@ -573,7 +600,7 @@ private fun Atom(tint: Color, alert: Boolean, modifier: Modifier = Modifier) {
                 }
                 val e = Math.toRadians(phase.toDouble())
                 drawCircle(
-                    color = Color.White.copy(alpha = 0.95f),
+                    color = spark,
                     radius = electronR,
                     center = Offset(c.x + major * cos(e).toFloat(), c.y + minor * sin(e).toFloat()))
             }
@@ -582,7 +609,8 @@ private fun Atom(tint: Color, alert: Boolean, modifier: Modifier = Modifier) {
         val nr = r * 0.26f * breathe
         drawCircle(
             Brush.radialGradient(
-                listOf(Color.White.copy(alpha = 0.92f), glow.copy(alpha = 0.95f), glow.copy(alpha = 0.55f)),
+                listOf(Color.White.copy(alpha = coreWhite), glow.copy(alpha = 0.95f),
+                    glow.copy(alpha = 0.55f)),
                 center = Offset(c.x - nr * 0.28f, c.y - nr * 0.28f), radius = nr * 1.7f),
             radius = nr, center = c)
     }
@@ -844,7 +872,7 @@ private fun PanelHeader(win: OverlayWindow, store: EntropyStore, state: UiState)
         verticalAlignment = Alignment.CenterVertically
     ) {
         Atom(tint = if (fused) entropy.warn else tempColor(entropy, tempC ?: 30f),
-            alert = fused, modifier = Modifier.size(22.dp))
+            alert = fused, contained = true, modifier = Modifier.size(22.dp))
         Spacer(Modifier.width(7.dp))
         Text("熵", color = entropy.onScrim, fontWeight = FontWeight.Bold, fontSize = 15.sp)
         Spacer(Modifier.width(6.dp))

@@ -239,7 +239,7 @@ fun NormalModeScreen(
             }
         }
 
-        SectionCard("UFO 屏幕刷新率测试", "切换刷新率后跑一遍，肉眼即可判断屏幕是否真的跑到目标 Hz") {
+        SectionCard("UFO 屏幕刷新率测试", "切换刷新率后跑一遍，页面同时给出实测 Hz、抖动与降档判定") {
             Text(
                 "原理：画面里每个色块以固定像素/秒移动。屏幕实际刷新率如果是 " +
                     "60Hz，快速移动会出现明显的锯齿状抖动；144Hz 以上则平滑连续。" +
@@ -265,7 +265,7 @@ fun NormalModeScreen(
         Spacer(Modifier.height(20.dp))
     }
 
-    if (showUfo) UfoTestDialog(onClose = { showUfo = false })
+    if (showUfo) UfoTestDialog(store = store, onClose = { showUfo = false })
 }
 
 /**
