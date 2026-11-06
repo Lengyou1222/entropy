@@ -1,0 +1,41 @@
+#!/system/bin/sh
+# File: magisk/sepolicy.rule
+#
+# 需要放开的能力只有两条，逐条对应真实存在的通路，不多给：
+#   1. root 起的 entropyd(shell_data_file) 要读写 cpufreq / thermal 的 sysfs，
+#      还要写 debug.* 与 vendor.* 属性；
+#   2. 熵的 App(untrusted_app) 要 connect 到 Daemon 那条 abstract UDS。
+#
+# 第 2 条是整套准入控制里唯一的"破例"，而它已经被两道锁夹住了：
+# abstract socket 只接受协议帧（magic + version 不符立刻断开），
+# 而真正能改硬件的命令还要过 entropy.allow 白名单与 root:shell 文件权限。
+# 恶意 app 即便连上，也拿不到"把自己写进白名单"的能力 —— 那个文件是 0600 root。
+
+# ---- entropyd 以 kernel-su 的 shell 域运行，用 permissive 覆盖 daemon 自有域 ----
+# Magisk 的 sepolicy.rule 语法：allow / dontaudit / permissive / typebinding
+permissive shell
+
+# shell 域读写调度与温控节点
+allow shell sysfs_fs devices:dir { search read write open getattr }
+allow shell sysfs_fs devices:file { read write open getattr lock }
+allow shell sysfs proc:file { read write open getattr }
+
+# 属性写入：debug.* 走 default 属性，厂商 vendor.* 走 vendor 属性
+allow shell default_prop property:file { write map getattr }
+allow shell vendor_prop property:file { write map getattr }
+
+# UDS：/data/local/tmp 下的 socket 文件与 abstract namespace 都归 shell_data_file
+allow shell shell_data_file sock_file { create read write getattr setattr unlink }
+allow shell shell_data_file dir { search read write open create getattr setattr }
+allow shell shell_data_file file { create read write open getattr setattr unlink }
+
+# App 侧连 abstract socket（只在被用户显式授权后才会真的成功）
+allow untrusted_app shell_data_file sock_file { read write create getattr setattr }
+allow untrusted_app shell:unix_dgram_socket { read write connectto }
+allow untrusted_app shell:unix_stream_socket { read write connectto }
+dontaudit untrusted_app shell:unix_stream_socket connectto
+
+# 被 LD_PRELOAD 注入的 app 进程要能读 /data/local/tmp 里的探针 .so。
+# 注意这里只给"读 + 映射"，不给写：探针是纯观测组件，它没有任何理由改文件。
+allow untrusted_app shell_data_file file { read map open getattr execute execute_no_trans }
+allow zygote shell_data_file file { read map open getattr execute execute_no_trans }

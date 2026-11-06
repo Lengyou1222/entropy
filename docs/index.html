@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>熵 / Entropy — Android 性能调度与悬浮控制台</title>
+<meta name="description" content="熵：给 Android 设备做频率上限、温控熔断、帧率记录与高帧率录屏的悬浮控制台。GitHub Pages 项目主页。">
+<meta name="theme-color" content="#F7C9D4">
+<link rel="icon" href="assets/icon.png">
+<meta property="og:title" content="熵 / Entropy">
+<meta property="og:description" content="Android 性能调度与悬浮控制台：频率上限、温控熔断、帧率记录、高帧率录屏、防录屏。">
+<meta property="og:image" content="assets/artwork.webp">
+<meta property="og:type" content="website">
+<style>
+:root{
+  --ink:#2B1B22; --ink-2:#5B414B; --ink-3:#8A6F78;
+  --sakura:#F4A7B9; --sakura-deep:#D9647F; --sakura-pale:#FDE7EE;
+  --plum:#8E4A62; --mint:#3E8E7E; --amber:#C9862B;
+  --card:#FFFFFF; --line:#F2D9E1; --bg:#FFF7F9;
+  --shadow:0 18px 40px -22px rgba(142,74,98,.45);
+  --radius:20px;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0; color:var(--ink); background:var(--bg);
+  font-family:"PingFang SC","Microsoft YaHei UI","Microsoft YaHei","Noto Sans CJK SC",system-ui,-apple-system,"Segoe UI",sans-serif;
+  line-height:1.75; -webkit-font-smoothing:antialiased;
+}
+a{color:var(--sakura-deep); text-decoration:none}
+a:hover{text-decoration:underline}
+.wrap{max-width:1080px; margin:0 auto; padding:0 22px}
+section{padding:76px 0}
+h2{font-size:30px; margin:0 0 6px; letter-spacing:.5px}
+h2 .en{font-size:14px; color:var(--ink-3); letter-spacing:3px; text-transform:uppercase; display:block; margin-bottom:6px}
+.lead{color:var(--ink-2); margin:0 0 34px; max-width:66ch}
+
+/* ---------- hero ---------- */
+.hero{position:relative; overflow:hidden; padding:96px 0 84px;
+  background:
+    radial-gradient(1100px 520px at 12% -10%, #FBD6E1 0%, rgba(251,214,225,0) 62%),
+    radial-gradient(900px 480px at 92% 4%, #F9E3C9 0%, rgba(249,227,201,0) 58%),
+    linear-gradient(180deg,#FFF3F6 0%, #FFF7F9 60%, #FFFDFE 100%);
+}
+.hero-grid{display:grid; grid-template-columns:1.15fr .85fr; gap:44px; align-items:center}
+@media (max-width:900px){.hero-grid{grid-template-columns:1fr} .hero{padding:64px 0 56px}}
+.badge{display:inline-flex; align-items:center; gap:8px; background:#fff; border:1px solid var(--line);
+  border-radius:999px; padding:5px 14px; font-size:13px; color:var(--plum); box-shadow:var(--shadow)}
+.badge b{color:var(--sakura-deep)}
+.title{font-size:60px; line-height:1.1; margin:18px 0 6px; letter-spacing:2px}
+.title small{display:block; font-size:15px; letter-spacing:8px; color:var(--ink-3); font-weight:400; margin-top:10px}
+.slogan{font-size:18px; color:var(--ink-2); margin:14px 0 26px; max-width:52ch}
+.cta{display:flex; flex-wrap:wrap; gap:12px; align-items:center}
+.btn{display:inline-flex; align-items:center; gap:10px; border-radius:14px; padding:13px 22px;
+  font-size:15px; font-weight:600; border:1px solid transparent; transition:.18s; box-shadow:var(--shadow)}
+.btn-primary{background:linear-gradient(135deg,var(--sakura-deep),#E88BA0); color:#fff}
+.btn-primary:hover{transform:translateY(-2px); text-decoration:none}
+.btn-ghost{background:#fff; color:var(--plum); border-color:var(--line)}
+.btn-ghost:hover{transform:translateY(-2px); text-decoration:none}
+.meta{font-size:13px; color:var(--ink-3); margin-top:14px}
+.art{position:relative}
+.art img{width:100%; display:block; border-radius:26px; box-shadow:0 34px 60px -30px rgba(142,74,98,.6)}
+.art::after{content:""; position:absolute; inset:-18px -18px 26px -18px; border-radius:34px;
+  border:1px solid var(--line); z-index:-1}
+
+/* ---------- petals ---------- */
+.petal{position:absolute; top:-8%; width:14px; height:14px; pointer-events:none; opacity:.75;
+  background:radial-gradient(circle at 30% 30%,#FFF0F4 0%,#F7B6C8 60%,#EE9BB2 100%);
+  border-radius:0 60% 50% 60%; animation:fall linear infinite}
+@keyframes fall{
+  0%{transform:translate3d(0,-10vh,0) rotate(0deg)}
+  100%{transform:translate3d(12vw,112vh,0) rotate(540deg)}
+}
+
+/* ---------- cards ---------- */
+.grid{display:grid; grid-template-columns:repeat(3,1fr); gap:18px}
+.grid.two{grid-template-columns:repeat(2,1fr)}
+@media (max-width:860px){.grid,.grid.two{grid-template-columns:1fr}}
+.card{background:var(--card); border:1px solid var(--line); border-radius:var(--radius); padding:22px 22px 20px;
+  box-shadow:var(--shadow); position:relative; overflow:hidden}
+.card::before{content:""; position:absolute; left:0; top:16px; bottom:16px; width:3px;
+  background:linear-gradient(180deg,var(--sakura),var(--plum)); border-radius:0 3px 3px 0}
+.card h3{margin:0 0 6px; font-size:17px}
+.card p{margin:0; font-size:14px; color:var(--ink-2)}
+.card .tag{display:inline-block; font-size:12px; color:var(--plum); background:var(--sakura-pale);
+  border-radius:8px; padding:1px 8px; margin-bottom:10px}
+
+/* ---------- shots ---------- */
+.shots{display:grid; grid-template-columns:repeat(3,1fr); gap:18px}
+@media (max-width:860px){.shots{grid-template-columns:1fr}}
+.shot{background:#fff; border:1px solid var(--line); border-radius:18px; overflow:hidden; box-shadow:var(--shadow)}
+.shot img{width:100%; display:block}
+.shot figcaption{font-size:13px; color:var(--ink-3); padding:10px 14px; border-top:1px solid var(--line)}
+
+/* ---------- tables ---------- */
+table{width:100%; border-collapse:collapse; background:#fff; border-radius:16px; overflow:hidden; box-shadow:var(--shadow)}
+th,td{padding:13px 16px; text-align:left; font-size:14px; border-bottom:1px solid #F6E6EC}
+th{background:var(--sakura-pale); color:var(--plum); font-weight:600; font-size:13px}
+tr:last-child td{border-bottom:none}
+code{background:#F7E9EE; color:var(--plum); border-radius:6px; padding:1px 6px; font-size:13px;
+  font-family:"JetBrains Mono",Consolas,"Cascadia Mono",monospace}
+pre{background:#2B1B22; color:#F6E2E9; border-radius:16px; padding:18px 20px; overflow:auto; font-size:13px; line-height:1.7}
+pre code{background:none; color:inherit; padding:0}
+
+/* ---------- safety ---------- */
+.safety{background:linear-gradient(180deg,#FFF9FA,#FDF1F4); border-top:1px solid var(--line); border-bottom:1px solid var(--line)}
+.rules{display:grid; grid-template-columns:repeat(2,1fr); gap:14px}
+@media (max-width:860px){.rules{grid-template-columns:1fr}}
+.rule{display:flex; gap:12px; align-items:flex-start; background:#fff; border:1px solid var(--line);
+  border-radius:14px; padding:14px 16px}
+.rule span{flex:0 0 auto; width:22px; height:22px; border-radius:50%; background:var(--sakura-pale);
+  color:var(--sakura-deep); font-size:13px; display:grid; place-items:center; margin-top:3px; font-weight:700}
+.rule p{margin:0; font-size:14px; color:var(--ink-2)}
+.rule b{color:var(--ink)}
+
+footer{padding:44px 0 60px; color:var(--ink-3); font-size:13px; border-top:1px solid var(--line); background:#FFFCFD}
+footer .wrap{display:flex; justify-content:space-between; gap:20px; flex-wrap:wrap}
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="petals" id="petals"></div>
+  <div class="wrap hero-grid">
+    <div>
+      <div class="badge">Android 7.0+ · 开源</div>
+      <h1 class="title">熵<small>ENTROPY · PERFORMANCE CONSOLE</small></h1>
+      <p class="slogan">
+        把频率上限、温控熔断、帧率记录和高帧率录屏收进一块可以拖到屏幕任何位置的浮窗。
+        不注入游戏进程，不改游戏文件，温度读到什么报什么。
+      </p>
+      <div class="cta">
+        <a class="btn btn-primary" id="dl" href="https://github.com/Lengyou1222/entropy/releases/latest">下载 APK</a>
+        <a class="btn btn-ghost" href="https://github.com/Lengyou1222/entropy">GitHub 仓库</a>
+        <a class="btn btn-ghost" href="#build">自己编译</a>
+      </div>
+      <p class="meta" id="dlmeta">arm64-v8a / armeabi-v7a · 无需 root 即可安装，能力按授权等级递降而不是不可用</p>
+    </div>
+    <div class="art"><img src="assets/artwork.webp" alt="熵 应用图标：樱吹雪下的猫耳少女"></div>
+  </div>
+</header>
+
+<section id="features">
+  <div class="wrap">
+    <h2><span class="en">What it does</span>它能做什么</h2>
+    <p class="lead">所有能力共用一个原生守护进程与一套 IPC 协议；界面只是它的其中一张脸。</p>
+    <div class="grid">
+      <div class="card"><div class="tag">浮窗</div><h3>双面板悬浮控制台</h3>
+        <p>左侧大面板装六节调节，右侧小面板紧贴屏幕右缘装信息、我的、开关与 CPU 排行。小球可拖动、双击切档、点面板外收起。</p></div>
+      <div class="card"><div class="tag">常驻</div><h3>灵动岛</h3>
+        <p>固定在顶部、不可拖动的一小块安全显示区，显示项可多选，展开后按内容量自适应缩放。</p></div>
+      <div class="card"><div class="tag">调度</div><h3>按应用调速</h3>
+        <p>每个应用一份帧率档案；开发模式页直接下发 CPU/GPU 频率上限，调度器 honor 显式值而不是自作主张。</p></div>
+      <div class="card"><div class="tag">记录</div><h3>帧率曲线</h3>
+        <p>记录页画曲线、给最低与最高值，可按单个应用归档，采样来自真节点，取不到就是「—」。</p></div>
+      <div class="card"><div class="tag">录屏</div><h3>高帧率录屏</h3>
+        <p>MediaProjection 采集，帧率跟随屏幕当前真实刷新率，上限 240 FPS，码率可手动指定。</p></div>
+      <div class="card"><div class="tag">隐私</div><h3>防录屏</h3>
+        <p>给浮窗与灵动岛加 FLAG_SECURE。录屏与截屏拿不到这几层内容，合成结果里对应区域是黑块。</p></div>
+      <div class="card"><div class="tag">快捷键</div><h3>音量键唤出</h3>
+        <p>音量加键打开、减键关闭。这是可观察行为，不拦截 KeyEvent，按键照常调音量。</p></div>
+      <div class="card"><div class="tag">授权</div><h3>四种等级并存</h3>
+        <p>无授权 / ADB / Shizuku / root（含 Magisk 模块）。当前处在哪一级、少了什么，界面里如实写着。</p></div>
+      <div class="card"><div class="tag">外观</div><h3>十七套配色 + 明暗主题</h3>
+        <p>默认樱吹雪。高亮色可自定义，但温度梯度与熔断色不参与改色——那三档是安全语义。</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="shots" style="padding-top:0">
+  <div class="wrap">
+    <h2><span class="en">Interface</span>界面</h2>
+    <p class="lead">浅色 + 樱吹雪方案，实机截图。</p>
+    <div class="shots">
+      <figure class="shot"><img src="assets/shots/home.webp" alt="首页" loading="lazy">
+        <figcaption>首页：实况温度 / CPU / 帧率与三档性能模式</figcaption></figure>
+      <figure class="shot"><img src="assets/shots/console.webp" alt="悬浮控制台" loading="lazy">
+        <figcaption>展开态：左侧大面板 + 右侧信息面板</figcaption></figure>
+      <figure class="shot"><img src="assets/shots/update.webp" alt="检查更新设置" loading="lazy">
+        <figcaption>设置页：检查更新一节，来源与上次结果都在明面上</figcaption></figure>
+    </div>
+  </div>
+</section>
+
+<section id="safety" class="safety">
+  <div class="wrap">
+    <h2><span class="en">Boundaries</span>安全边界</h2>
+    <p class="lead">这些是刻意保留的约束，不是待清理的技术债。</p>
+    <div class="rules">
+      <div class="rule"><span>1</span><p><b>不改游戏文件。</b>UE4 的 <code>*.ini</code>、<code>config.lua</code> 一律不碰。</p></div>
+      <div class="rule"><span>2</span><p><b>不注入游戏进程。</b>反外挂会把它当外挂信号；插帧与调度走内核侧接口，不往目标进程塞代码。</p></div>
+      <div class="rule"><span>3</span><p><b>不伪造温度。</b>读到什么报什么，取不到显示「—」。</p></div>
+      <div class="rule"><span>4</span><p><b>95 ℃ 熔断钳三次。</b>App、Daemon、CLI 各一道，任何一处被绕过都还有下一道。读数取所有热区的最大值，真实机型上那通常是 SoC / GPU 结温，负载起来 60~80 ℃ 是常态，所以默认熔断线 85 ℃、软上限 70 ℃、提醒线 60 ℃；越线只做一件事——把调度还原成系统默认。</p></div>
+      <div class="rule"><span>5</span><p><b>节点写入有白名单。</b>只接受 <code>/sys/</code> 与 <code>/proc/</code>、拒绝 <code>..</code>、值必须整型；连接侧保留 UID 门。</p></div>
+      <div class="rule"><span>6</span><p><b>包名先过正则。</b><code>^[A-Za-z0-9._:-]{1,128}$</code>，含 shell 元字符一律拒绝。</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="build">
+  <div class="wrap">
+    <h2><span class="en">Build</span>自己编译</h2>
+    <p class="lead">需要 JDK 17、Android SDK 35、NDK，Gradle 由 wrapper 带。</p>
+<pre><code>bash scripts/build-daemon.sh   # 先编 native：产出 daemon/out/&lt;abi&gt;/
+bash scripts/build-apk.sh      # 一条命令出 release + debug APK 到 dist/</code></pre>
+    <div class="grid two" style="margin-top:20px">
+      <div class="card"><div class="tag">路径</div><h3>影子目录</h3>
+        <p>构建脚本把源码同步到一个纯 ASCII 目录再交给 Gradle——AGP 在 Windows 上会直接拒绝非 ASCII 工程路径，
+        这不是警告而是 <code>apply plugin</code> 阶段失败。源码目录保持原样。</p></div>
+      <div class="card"><div class="tag">踩坑</div><h3>改过 native 要先删产物</h3>
+        <p><code>rm -rf daemon/out</code> 再编。脚本只搬运产物，不感知 native 源文件的变化，
+        留着旧目录会得到一个「编过了但没带上改动」的 APK。</p></div>
+      <div class="card"><div class="tag">分发</div><h3>只有 arm 产物</h3>
+        <p>守护进程是 Native 的可执行文件树，不走 JNI 库路径：编好后复制进 <code>assets/native/&lt;abi&gt;</code>，
+        授权后释放到 <code>/data/local/tmp</code>。</p></div>
+      <div class="card"><div class="tag">签名</div><h3>读不到就退回 debug</h3>
+        <p>签名材料在 <code>keystore.properties</code> 与 <code>entropy.keystore</code>，都被 gitignore。
+        缺了它们构建照样成功，只是那份包不能覆盖安装正式签名的包。</p></div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div>熵 / Entropy · <span id="repo">Lengyou1222/entropy</span></div>
+    <div>软件按现状提供 · 持续顶高负载会加快电池损耗并抬高机身温度，熔断是保护措施而不是保证</div>
+  </div>
+</footer>
+
+<script>
+/* 樱吹雪：花瓣数量固定十几片，纯 CSS 动画，不接第三方脚本 */
+(function(){
+  var host=document.getElementById('petals');
+  if(!host) return;
+  for(var i=0;i<14;i++){
+    var p=document.createElement('span');
+    p.className='petal';
+    p.style.left=(Math.random()*100)+'%';
+    p.style.animationDuration=(9+Math.random()*10)+'s';
+    p.style.animationDelay=(-Math.random()*18)+'s';
+    var s=(8+Math.random()*10);
+    p.style.width=s+'px'; p.style.height=s+'px';
+    p.style.opacity=(0.35+Math.random()*0.4).toFixed(2);
+    host.appendChild(p);
+  }
+})();
+
+/* 下载链接以真实 Release 为准；查不到就退回仓库的 releases 页 */
+(function(){
+  var REPO='Lengyou1222/entropy';
+  var dl=document.getElementById('dl'), meta=document.getElementById('dlmeta');
+  if(!dl) return;
+  fetch('https://api.github.com/repos/'+REPO+'/releases/latest',{
+    headers:{'Accept':'application/vnd.github+json'}
+  }).then(function(r){
+    if(!r.ok) throw new Error(r.status);
+    return r.json();
+  }).then(function(d){
+    var a=(d.assets||[]).filter(function(x){return /\.apk$/i.test(x.name)})[0];
+    if(a){
+      dl.href=a.browser_download_url;
+      meta.textContent=a.name+' · '+(a.size/1048576).toFixed(1)+' MB · arm64-v8a / armeabi-v7a';
+    }
+  }).catch(function(){
+    meta.textContent='首个 Release 还没发布 · 下载入口指向仓库的 Releases 页';
+  });
+})();
+</script>
+</body>
+</html>

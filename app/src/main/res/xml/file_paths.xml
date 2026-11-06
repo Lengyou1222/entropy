@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  File: app/src/main/res/xml/file_paths.xml
+
+  只放开 hwlog 与 update 两个子目录。根目录（filesDir）里还有 SharedPreferences 的备份
+  和释放出来的二进制，一旦写成 path="."，任何接住分享 Intent 的应用都能顺着
+  content:// 的路径猜出并读到别的东西。
+  update/ 是给"安装新版"用的：装包时系统安装器要读那个 APK，只能经 content:// 递过去。
+-->
+<paths>
+    <files-path name="hwlog" path="hwlog/" />
+    <files-path name="update" path="update/" />
+</paths>

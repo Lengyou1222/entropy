@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  File: app/src/main/res/drawable/ic_entropy_ball.xml
+  "熵粒子"图标：一个带内部无序点阵的球。用矢量图而非位图，
+  是为了让它在 60~165Hz 的任意 DPI 与悬浮窗缩放下都保持锐利。
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#6750A4"
+        android:pathData="M54,18 C74,18 90,34 90,54 C90,74 74,90 54,90 C34,90 18,74 18,54 C18,34 34,18 54,18 Z" />
+    <path
+        android:fillColor="#FFD9CC"
+        android:pathData="M54,26 C69.4,26 82,38.6 82,54 C82,69.4 69.4,82 54,82 C38.6,82 26,69.4 26,54 C26,38.6 38.6,26 54,26 Z" />
+    <!-- 粒子：故意不等距，表达"高熵" -->
+    <path android:fillColor="#4A4458" android:pathData="M44,42m-4,0a4,4 0,1 1,8 0a4,4 0,1 1,-8 0" />
+    <path android:fillColor="#4A4458" android:pathData="M63,47m-3,0a3,3 0,1 1,6 0a3,3 0,1 1,-6 0" />
+    <path android:fillColor="#4A4458" android:pathData="M50,62m-5,0a5,5 0,1 1,10 0a5,5 0,1 1,-10 0" />
+    <path android:fillColor="#4A4458" android:pathData="M68,66m-2.5,0a2.5,2.5 0,1 1,5 0a2.5,2.5 0,1 1,-5 0" />
+    <path android:fillColor="#4A4458" android:pathData="M38,55m-2,0a2,2 0,1 1,4 0a2,2 0,1 1,-4 0" />
+</vector>

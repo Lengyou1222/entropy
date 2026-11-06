@@ -1,0 +1,12 @@
+# File: magisk/system.prop
+#
+# 模块自带的属性默认值。全部是可回退的调试开关，没有一条直接改硬件状态：
+# 真正的频率与温控动作都由 entropyd 在运行时按探测结果下发，
+# 这样卸载模块之后不会留下任何"属性还在但没人解释它"的悬空配置。
+
+# HWUI 默认后端保持系统选择；这里显式留空让 Daemon 的属性写入有稳定的初值可读
+debug.hwui.renderer=
+
+# 关掉系统自带的过度预热：厂商的 preRender/boost 与熵的前馈控制会互相覆盖，
+# 两边同时抬频只会让温度先撞熔断线
+debug.sf.auto_latch_unsignaled=0

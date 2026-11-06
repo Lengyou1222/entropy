@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">熵</string>
+    <string name="tab_normal">日常</string>
+    <string name="tab_dev">开发</string>
+    <string name="tab_system">系统增强</string>
+    <string name="overlay_channel">熵 · 悬浮控制台</string>
+    <string name="overlay_channel_desc">保持悬浮控制台常驻，便于随时调节调度档位</string>
+    <string name="overlay_notif_hint">拖动小球移动，捏合缩放，音量加键展开、减键收起</string>
+    <string name="overlay_notif_close">隐藏</string>
+    <string name="overlay_notif_hidden">控制台已收起 · 音量加键唤回</string>
+    <string name="overlay_notif_quit">退出</string>
+    <string name="hud_channel">熵 · 安全显示</string>
+    <string name="hud_channel_desc">常驻显示帧率与温度，温度越过提醒线时给出提示</string>
+    <string name="hud_notif_close">关闭小窗</string>
+    <string name="hud_alert_channel">温度过热提醒</string>
+    <string name="hud_alert_channel_desc">机身温度越过 HUD 提醒线时提示一次，回落 2℃ 后解除</string>
+    <string name="hud_alert_title">机身温度偏高</string>
+    <string name="hud_alert_text">当前 %1$.1f℃，已达提醒线 %2$.1f℃。</string>
+    <string name="hud_alert_desc">持续高温会触发厂商温控强制降频。建议切到省电档、摘下手机壳或暂停高负载场景。</string>
+    <string name="hud_alert_powersave">切到省电</string>
+    <string name="record_channel">熵 · 屏幕录制</string>
+    <string name="record_channel_desc">录制期间保持前台，系统才不会在中途回收编码器</string>
+    <string name="record_notif_hint">正在录制屏幕</string>
+    <string name="record_notif_stop">停止录制</string>
+    <string name="warn_title">硬件安全提示</string>
+</resources>

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  File: app/src/main/res/values/themes.xml
+  Compose 自己接管配色，这里的 XML 主题只负责两件事：
+  1. 去掉 ActionBar（否则 Compose 内容会被系统标题栏顶下去）；
+  2. 给窗口一个与 Compose 主题一致的底色，避免启动瞬间白/黑闪屏。
+-->
+<resources>
+    <style name="Theme.Entropy" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">#FBF8FF</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">true</item>
+    </style>
+</resources>

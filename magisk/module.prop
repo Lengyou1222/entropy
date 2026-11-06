@@ -1,0 +1,7 @@
+id=entropy
+name=熵 Entropy
+version=1.0.0
+versionCode=1
+author=LengYou
+description=Native 调度守护进程与熔断保护（entropyd / entropy-monitor / entropy-freezer / 帧率探针）
+updateJson=

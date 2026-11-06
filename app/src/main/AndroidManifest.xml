@@ -1,0 +1,122 @@
+<!--
+  File: app/src/main/AndroidManifest.xml
+
+  权限清单是按"每个权限对应一个具体功能"来加的，不是一次性撒网：
+   SYSTEM_ALERT_WINDOW  -> 悬浮窗（球 + Dock 面板）
+   FOREGROUND_SERVICE / _SPECIAL_USE -> Android 14+ 要求前台服务声明类型
+   FOREGROUND_SERVICE_MEDIA_PROJECTION -> 录屏前台服务；Android 14 起缺它就起不来
+   POST_NOTIFICATIONS   -> Android 13+ 悬浮窗服务的通知渠道
+   WRITE_SECURE_SETTINGS-> 仅 ADB 模式可用（adb install -g / appops grant），用于刷新率
+   接上 Shizuku 后这条不再必要：授权过的 Shizuku 通道直接以 shell 身份执行。
+   INTERNET / REQUEST_INSTALL_PACKAGES -> 检查更新与安装新版：读公开 Releases，装自己下的 APK
+   Shizuku 侧的 API_V23 与 moe.shizuku.client.V3_SUPPORT 由 provider 库自己合入，不写在这。
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <!-- 检查更新与下载 APK：只出网到 api.github.com 与 release 资产地址，
+         读的是公开的 releases/latest，不带任何凭据 -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- 应用内装更新包。这只是"允许我发起安装 Intent"，
+         真正装不装由系统在"安装未知应用"页里问用户 -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
+        tools:ignore="QueryAllPackagesPermission" />
+    <!-- 仅在设备上已授予（ADB pm grant）时生效，未授予时 UI 会提示 -->
+    <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS"
+        tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS"
+        tools:ignore="ProtectedPermissions" />
+
+    <application
+        android:name=".EntropyApp"
+        android:allowBackup="false"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.Entropy">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:configChanges="orientation|screenSize|keyboardHidden|uiMode|density"
+            android:theme="@style/Theme.Entropy">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- 悬浮窗宿主服务。specialUse 是 Android 14 对"非媒体类常驻服务"的合法类型。 -->
+        <service
+            android:name=".overlay.OverlayService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="performance_overlay" />
+        </service>
+
+        <!-- 媒体键唤出：MediaSession 的键码回调需要它处于 active 状态 -->
+        <receiver
+            android:name=".overlay.VolumeKeyReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MEDIA_BUTTON" />
+            </intent-filter>
+        </receiver>
+
+        <!-- 安全显示悬浮窗：一块极小的常驻窗口，独立于上面那块控制台。
+             分成两个服务是因为生命周期不同 —— 控制台随点随关，HUD 要一直挂着。 -->
+        <service
+            android:name=".overlay.SafeHudService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="thermal_hud" />
+        </service>
+
+        <!-- 录屏服务。类型必须是 mediaProjection：Android 14 起这个类型要求
+             "先 startForeground、后 getMediaProjection"，顺序反了直接 SecurityException，
+             所以这条服务不能并进上面两个 specialUse 服务里。 -->
+        <service
+            android:name=".media.RecordService"
+            android:exported="false"
+            android:foregroundServiceType="mediaProjection" />
+
+        <!-- Shizuku 客户端入口：Shizuku 服务端就是靠这条 authority 找到本应用，
+             把自己列进它的权限页并让"应用内请求授权"能用。少了它，api 库照常工作，
+             但 Shizuku 那边看不见熵 —— 用户只能去 adb 里手动给。
+             android:permission 这条不能省：provider 是 exported 的，收口到只允许
+             持有 INTERACT_ACROSS_USERS_FULL 的身份（也就是 shell/root）来取 binder，
+             否则任何第三方应用都能来 call 它。 -->
+        <provider
+            android:name="rikka.shizuku.ShizukuProvider"
+            android:authorities="${applicationId}.shizuku"
+            android:enabled="true"
+            android:exported="true"
+            android:multiprocess="false"
+            android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
+
+        <!-- 记录文件在应用私有目录，分享时必须经 FileProvider 换成 content://；
+             直接交 file:// 在 Android 7+ 会让对端抛 FileUriExposedException。 -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+    </application>
+</manifest>

@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  File: app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml
+
+  自适应图标（API 26+）。三层都由 scripts/gen_launcher_icons.py 从同一张原图烘出来：
+   background  原图铺满 108dp 画布后高斯模糊压暗，负责填前景四周的空隙
+   foreground  以脸为中心取景的方形裁切，只占画布 0.84 倍
+   monochrome  同一张取景图的暗部剪影，供 Android 13+ 主题图标按系统色重新着色
+
+  前景为什么不铺满：启动器会把 108dp 裁成直径 66dp 的圆（或更方的 squircle），
+  铺满等于让耳朵和裙摆被切掉。0.84 倍居中后，圆形遮罩落进来的那一圈正好是脸和花束。
+  五个密度的位图都在 drawable-*/，不在这里重复声明。
+-->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@drawable/ic_launcher_background" />
+    <foreground android:drawable="@drawable/ic_launcher_foreground" />
+    <monochrome android:drawable="@drawable/ic_launcher_monochrome" />
+</adaptive-icon>

@@ -1,0 +1,64 @@
+#!/system/bin/sh
+# File: magisk/META-INF/com/google/android/update-binary
+#
+# 这是 Magisk 模块安装器的入口。它刻意写得薄：所有"怎么解压、怎么设权限、
+# 怎么判断是不是 BootMode"的活儿都交给 Magisk 自己带的 util_functions.sh。
+#
+# 为什么不自己实现那部分：
+#   安装期唯一的破坏性动作就是往 /data/adb/modules 写文件和（如果有 system/ 目录）
+#   挂 OverlayFS。自己重写一套 = 在 Magisk 版本升级时悄悄错位的风险。
+#   官方模板的这套调用方式是被验证过的，抄它。
+#
+# 本模块没有 system/ 目录：不替换任何系统分区文件，只放可执行文件与脚本，
+# 所以 skip_mount 是安全的，也是卸载后不留痕迹的前提。
+
+SKIPMOUNT=true      # 无 system/ 内容，跳过挂载阶段
+PROPFILE=true       # 使用 system.prop
+POSTFSDATA=false    # 启动放在 service.sh（late_start），温控与频率需要已挂载的 /sys
+LATESTARTSERVICE=true
+
+print_cmd() {
+    # App 安装模式（BOOTMODE=1）下由 Magisk App 解析这两行来渲染安装日志；
+    # recovery 下退化成普通 echo，不影响流程。
+    echo "$1" >&2
+    [ -n "$OUTFD" ] && echo "$1" > "$OUTFD"
+}
+ui_print() {
+    print_cmd "ui_print $1"
+    print_cmd "ui_print"
+}
+set_progress() { [ -n "$OUTFD" ] && echo "set_progress $1" > "$OUTFD"; }
+
+umask 022
+OUTFD=$2
+ZIPFILE=$3
+
+mount /data 2>/dev/null
+
+if [ ! -f /data/adb/magisk/util_functions.sh ]; then
+    ui_print "! 找不到 /data/adb/magisk/util_functions.sh"
+    ui_print "! 这说明 Magisk 未安装（或版本过旧）。熵的模块只能通过 Magisk 安装。"
+    ui_print "! 不想刷模块的话：用 ADB 推送三个二进制，见 App 内\"ADB 命令\"面板。"
+    exit 1
+fi
+. /data/adb/magisk/util_functions.sh
+
+setup_flashable
+prepare_bb
+load_policy
+api_version_check
+
+# 到这一步才读得到 module.prop：MODID/MODVER 是 setup_flashable 里 load_metadata 填的
+ui_print "- 熵 Entropy v${MODVER:-1.0.0}"
+
+# 元数据校验：Magisk 用这个 id 建目录、卸载时按它找模块。
+# 写错 id 的包会让"卸载"变成"手工删文件"，那正是最容易留下残留的失败方式。
+[ "${MODID:-}" = "entropy" ] || { ui_print "! 模块 ID 异常: ${MODID:-空}"; exit 1; }
+
+# install_module 内部完成解压、跑 customize.sh、设权限与打 SELinux 标签。
+# 自己重写这三步是官方模板被 fork 坏的最常见原因，这里不重写。
+install_module
+
+ui_print "- 完成。重启后 entropyd 由 service.sh 拉起"
+ui_print "- 说明：模块不会自动把熵的 App 写进 Daemon 白名单，需要你在地首屏显式授权"
+
