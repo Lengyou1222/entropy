@@ -16,6 +16,7 @@ package com.entropy
 import android.Manifest
 import android.content.Intent
 import android.net.Uri
+import android.app.Activity
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
@@ -71,6 +72,7 @@ import androidx.navigation.compose.rememberNavController
 import com.entropy.data.EntropyStore
 import com.entropy.data.ThemeMode
 import com.entropy.data.UiState
+import com.entropy.media.ScreenRecord
 import com.entropy.overlay.OverlayService
 import com.entropy.overlay.SafeHudService
 import com.entropy.ui.GameFrameScreen
@@ -96,9 +98,27 @@ class MainActivity : ComponentActivity() {
     /** 悬浮窗的 UFO 按钮把 Activity 拉到前台时用的可见性状态 */
     private val showUfo = mutableStateOf(false)
 
+    /**
+     * 悬浮控制台上的「录屏」按钮递过来的请求。
+     * 用状态位而不是在 onCreate 里直接 launch：注册好的 launcher 要在 onCreate 走完才能发，
+     * 而这里读 intent 的时机就在 onCreate 中间。状态位交给下面 setContent 里的 effect 消费，
+     * 那条 effect 跑的时候组合已经挂上，不会撞上"还没通过 CREATE 事件"。
+     */
+    private val recordRequest = mutableStateOf(false)
+
+    /** 系统那条"开始录屏"的授权页。整台机器只能由 Activity 发起，浮窗自己发不出去 */
+    private val recordLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { r ->
+        val data = r.data
+        if (r.resultCode == Activity.RESULT_OK && data != null) ScreenRecord.start(this, r.resultCode, data)
+        else ScreenRecord.note.value = "已取消授权，没有开始录制"
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (intent.getBooleanExtra(EXTRA_UFO, false)) showUfo.value = true
+        if (intent.getBooleanExtra(EXTRA_RECORD, false)) recordRequest.value = true
         // HUD 属于"安全显示"，上次开着而进程被系统回收的，这次要自己回来。
         // 只能在 Activity 已经在前台时拉起：Android 12+ 不允许后台进程随便 startForegroundService，
         // 放在 Application.onCreate 里会在个别 ROM 上直接抛 ForegroundServiceStartNotAllowedException。
@@ -112,6 +132,16 @@ class MainActivity : ComponentActivity() {
             // 用户在设置页里改开关不该让已经在跑的这次检查重发一遍请求。
             LaunchedEffect(Unit) {
                 if (store.autoUpdateCheck.value) UpdateFlow.check(this@MainActivity, auto = true)
+            }
+            // 消费悬浮控制台递来的录屏请求。effect 跑在组合挂上之后，launcher 这时已经注册完事，
+            // 不会撞上"Activity 还没通过 CREATE"。键用请求位而不是 Unit：浮窗第二次按录屏要能再发一次授权页。
+            // 先把请求位落下、再把 intent 里那位抹掉 —— 授权页还挂在前面时转屏重建，
+            // 不会照着旧 intent 凭空再弹一次。
+            LaunchedEffect(recordRequest.value) {
+                if (!recordRequest.value) return@LaunchedEffect
+                recordRequest.value = false
+                intent.removeExtra(EXTRA_RECORD)
+                recordLauncher.launch(ScreenRecord.captureIntent(this@MainActivity))
             }
             EntropyTheme(
                 themeMode = mode,
@@ -134,6 +164,7 @@ class MainActivity : ComponentActivity() {
         // singleTask 下悬浮窗第二次唤出不会走 onCreate，必须在这里补
         setIntent(intent)
         if (intent.getBooleanExtra(EXTRA_UFO, false)) showUfo.value = true
+        if (intent.getBooleanExtra(EXTRA_RECORD, false)) recordRequest.value = true
     }
 
     override fun onDestroy() {
@@ -146,6 +177,9 @@ class MainActivity : ComponentActivity() {
     companion object {
         const val EXTRA_UFO = "com.entropy.extra.UFO"
         const val EXTRA_TAB = "tab"
+
+        /** 悬浮控制台的录屏按钮：把这一位带上，Activity 起来后代发系统授权页 */
+        const val EXTRA_RECORD = "com.entropy.extra.RECORD"
     }
 }
 

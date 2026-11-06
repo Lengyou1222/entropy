@@ -30,6 +30,8 @@ import android.widget.FrameLayout
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.AnimationSpec
+import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
@@ -85,6 +87,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
@@ -296,18 +299,26 @@ fun OverlayRoot(
         // 面板从 (0,0) 起整屏高，小球坐在用户拖到的位置上。服务改窗口尺寸是立刻生效的
         // （WindowManager 没有"把矩形动画过去"这回事），同帧画两份内容只会让小球
         // 先跳到屏幕中间再飞回去。所以只做"新内容自己进场"。
-        val stage = remember { Animatable(0f) }
+        // 这块窗口小球和面板共用，进度必须按形态重建：小球进场时它已经停在 1，
+        // 只调 animateTo(1f) 会在同一帧就完成 —— 左半边直接"啪"地出现，右半边是新建窗口
+        // 从零起步慢慢拉开，两边看着就是两套东西。右侧小面板本来每次都是新窗口、从 0 起，
+        // 这一句把左边拉回同一个起点，两边才真的逐帧同步。
+        val stage = remember(form) { Animatable(0f) }
         LaunchedEffect(form, exiting) {
-            if (exiting) stage.animateTo(0f, tween(ExitAnimMs, easing = EntropyMotion.Ease))
-            else stage.animateTo(1f, spring(dampingRatio = 0.72f, stiffness = 340f))
+            stage.animateTo(if (exiting) 0f else 1f, panelStageSpec(exiting))
         }
         Box(
             Modifier.fillMaxSize().graphicsLayer {
                 val p = stage.value
-                alpha = p
+                alpha = if (form == OverlayForm.PANEL) panelStageAlpha(p) else p
                 if (form == OverlayForm.PANEL) {
-                    // 面板往左退回屏幕外一小截：它是贴左边的东西，从左边来最顺
-                    translationX = -(1f - p) * size.width * 0.4f
+                    // 贴左缘的东西从左缘长出来：origin 压在最左那条边上，只有右边界往外走。
+                    // 不平移 —— 整块平移是推抽屉，两块方向还相反，看着就是两个不相干的东西
+                    scaleX = PanelStretchFrom + (1f - PanelStretchFrom) * p
+                    // 显式写平：graphicsLayer 的 lambda 只改自己碰到的属性，小球那一档留下的
+                    // scaleY 会一路带进面板，竖直方向跟着一起缩，读起来像"放大"而不是"拉开"
+                    scaleY = 1f
+                    transformOrigin = TransformOrigin(0f, 0.5f)
                 } else {
                     val s = 0.72f + 0.28f * p
                     scaleX = s
@@ -325,6 +336,41 @@ fun OverlayRoot(
 
 /** 退场动画时长。服务侧等同样这段时间再 removeView，改这里要一起改 */
 const val ExitAnimMs = 190
+
+/**
+ * 进场时长。比退场长一截是故意的：展开要有"被拉开"的过程感，收回去则要干脆，
+ * 两边共用同一条曲线才不会让人看出这是两套代码在动。
+ */
+private const val EnterAnimMs = 420
+
+/** 面板从自己那条屏幕边伸出来时的起始宽度比例。收得太狠会像放电影开场，太轻又看不出在动 */
+private const val PanelStretchFrom = 0.78f
+
+/**
+ * 伸展专用的曲线：两头都收速，中段才走量。
+ *
+ * 不用 EntropyMotion.EaseOut —— 那条起步极快（前两成时间就走完七成），22% 的宽度差
+ * 摊在上面等于两三帧到位，看着就是闪一下，这正是"生硬"的来处。这里起步斜率约 0.06、
+ * 落位斜率 0，读起来才是从边上被拉开、自己停住。
+ */
+private val PanelStretchEase = CubicBezierEasing(0.34f, 0.02f, 0.18f, 1f)
+
+/**
+ * 两块面板共用的进度曲线。
+ *
+ * 用 tween + 同一条贝塞尔而不是 spring：弹簧的 stiffness 一高就是"啪"一下弹到位；
+ * 弹簧还有一帧一帧的数值差异，两块面板同时动时会出现一边先到位，
+ * 同一条 tween 曲线才能保证两边逐帧完全同步。
+ */
+private fun panelStageSpec(exiting: Boolean): AnimationSpec<Float> =
+    if (exiting) tween(ExitAnimMs, easing = EntropyMotion.Ease)
+    else tween(EnterAnimMs, easing = PanelStretchEase)
+
+/**
+ * 透明度走在几何前面一点。整块板子一边长大一边才从全透明里浮出来，
+ * 读到的是"闪了一下"；alpha 先跟上、宽度慢慢拉开，才是"从边上伸出来"。
+ */
+private fun panelStageAlpha(p: Float): Float = (0.25f + 0.75f * p).coerceIn(0f, 1f)
 
 // ------------------------------------------------------------------ //
 // 形态一：原子小球                                                      //
@@ -705,6 +751,7 @@ fun SideConsoleRoot(
     state: UiState,
     themeMode: ThemeMode,
     chrome: OverlayChrome,
+    exiting: Boolean = false,
 ) {
     val prefs = store.prefs
     EntropyTheme(
@@ -715,11 +762,15 @@ fun SideConsoleRoot(
         palette = store.palette.value,
     ) {
         val stage = remember { Animatable(0f) }
-        LaunchedEffect(Unit) { stage.animateTo(1f, spring(dampingRatio = 0.72f, stiffness = 340f)) }
-        // 进场从右边来：这块贴的是右缘，往左飞就和它的归属对不上了
+        LaunchedEffect(exiting) {
+            stage.animateTo(if (exiting) 0f else 1f, panelStageSpec(exiting))
+        }
+        // 和左面板同一条曲线、同一个幅度，只是锚点换到右缘：这块贴的是右缘，
+        // 就该从右缘长出来。两边逐帧同步，展开时才读得出是"一块控制台的左右两半"
         Box(Modifier.fillMaxSize().graphicsLayer {
-            alpha = stage.value
-            translationX = (1f - stage.value) * size.width * 0.5f
+            alpha = panelStageAlpha(stage.value)
+            scaleX = PanelStretchFrom + (1f - PanelStretchFrom) * stage.value
+            transformOrigin = TransformOrigin(1f, 0.5f)
         }) {
             SideConsole(win, store, state, chrome)
         }

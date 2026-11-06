@@ -11,6 +11,7 @@
 // 左栏那一节的选择不会被带走。所以页面状态是一个可空的下标而不是第三个标签枚举。
 package com.entropy.overlay
 
+import android.content.Intent
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
@@ -74,6 +75,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.entropy.MainActivity
 import com.entropy.data.EntropyStore
 import com.entropy.data.Feature
 import com.entropy.data.OverlayForm
@@ -84,6 +86,7 @@ import com.entropy.hardware.CpuRanking
 import com.entropy.hardware.CpuTier
 import com.entropy.hardware.HardwareBridge
 import com.entropy.hardware.RankRow
+import com.entropy.media.ScreenRecord
 import com.entropy.shared.Proto
 import com.entropy.ui.components.EntropyMotion
 import com.entropy.ui.theme.LocalEntropyColors
@@ -508,9 +511,10 @@ private val Chapters = listOf(
         "两种形态：整面大面板和原子小球。点空白处一下，大面板就收回小球。",
         listOf(
             "在应用首页打开「悬浮控制台」，屏幕上出现一颗原子小球。它就是控制台收起来的样子。",
-            "点小球 → 弹出它自己的紧凑控制台（档位 + 读数 + 切形态）。够用，且只占一小块。",
+            "点小球 → 弹出它自己的紧凑控制台（档位 + 读数 + 切形态）。够用，且只占一小块。刚被空白处收回来的那颗球不算，见下一条。",
             "要整面：在紧凑控制台里选「左侧控制台」，面板会贴住屏幕左侧展开，左边是六节。",
             "点面板外面的空白处会把大面板收回小球。按在面板里、右半那块小面板里、灵动岛上都不算点外面 —— 同一下手势会被认出来。",
+            "被空白处收回的那颗球再点一下，直接回到大面板，不经过紧凑控制台：那一下是「临时收一下」，不是你改选了小球形态。真想用小球那一档，得从面板顶部按「小球」，之后点球就还是弹紧凑控制台。",
             "另外三条收起来的路：面板顶部右侧的「小球」（收成那颗球）、「隐藏」（彻底关掉浮窗）、音量减键。",
             "双击小球或紧凑控制台的空白处会换成整面面板；在整面面板上双击不会换回去，那是防误触。",
             "小球可以拖动、可以双指捏合改大小（0.7~1.4 倍）；控制台整面不可拖动，位置固定在左侧。",
@@ -602,10 +606,12 @@ private val Chapters = listOf(
         "录屏的帧率跟屏幕刷新率走；防录屏开了以后，浮窗和灵动岛都不会出现在成片里。",
         listOf(
             "底部导航的「录制」页：开始 / 停止、时长、当前帧率、文件都在这块。",
+            "控制台右栏「开关」页也有一张「录屏」卡：防录屏开关 + 开始/停止 + 时长与目标帧率，玩游戏时不用回 App。",
+            "从控制台按「开始」会把应用带到前台一次 —— 系统那张授权框只能由 Activity 发出去，浮窗发不了。录起来之后按「停止」就在这块面板里，不再弹应用。",
             "帧率默认跟着屏幕刷新率，也可以手动钉在某个值；上限 240。",
             "系统会弹一次录屏授权框，那是 MediaProjection 本身要求的，不是额外的权限。",
             "成片存在应用自己的目录里，页上那行「输出目录」写的就是实际路径；要留在相册里就点「存入相册」。",
-            "「防录屏」打开后，悬浮控制台、右侧小面板、灵动岛在成片与截屏里都不出现 —— 要录下这些面板就别开它。",
+            "「防录屏」打开后，悬浮控制台、右侧小面板、灵动岛在成片与截屏里都不出现 —— 要录下这些面板就别开它。应用里的设置页和控制台那张卡是同一个开关，改哪边都立刻生效。",
             "确认：录一段回看，面板在不在里面一目了然；在的话说明防录屏是关着的。",
         ),
     ),
@@ -813,6 +819,38 @@ internal fun QuickSwitchPage(win: OverlayWindow, store: EntropyStore, state: UiS
             Chip("隐藏浮窗", false, Modifier.weight(1f)) { win.hide() }
             Chip("打开应用", false, Modifier.weight(1f)) { win.openApp() }
         }
+    }
+    PanelCard("录屏") {
+        val recording = ScreenRecord.recording.value
+        val sec = ScreenRecord.elapsedSec.intValue
+        ToggleRow("防录屏", store.preventRecord.value) { store.setPreventRecord(it) }
+        Text(
+            // 只说可观察到的结果，不说"绝对录不到"：secure 层之外还有对着屏幕拍照这条路
+            if (store.preventRecord.value) "已开：浮窗和灵动岛不进成片，被采集到的那几块是黑块 —— 平台就是这么合成的。" +
+                "拦得住录屏与截屏，拦不住对着屏幕拍照。"
+            else "未开：浮窗和灵动岛会一起被录进画面。",
+            color = entropy.onScrim.copy(alpha = 0.55f), fontSize = 9.sp, lineHeight = 12.sp, maxLines = 3)
+        Spacer(Modifier.height(6.dp))
+        Chip(
+            if (recording) "停止录制 %d:%02d".format(sec / 60, sec % 60) else "开始录制",
+            recording,
+            Modifier.fillMaxWidth()
+        ) {
+            if (recording) ScreenRecord.stop(ctx)
+            else ctx.startActivity(
+                // 系统那条授权页只能由 Activity 发（MediaProjection 的 result 要回到 Activity 上），
+                // 浮窗发不出去。所以"开始"这一下必然把应用带到前台；录制本身在服务里跑，
+                // 停止不用再回应用。
+                Intent(ctx, MainActivity::class.java)
+                    .putExtra(MainActivity.EXTRA_RECORD, true)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            )
+        }
+        Spacer(Modifier.height(4.dp))
+        Text(
+            if (recording) "%s · 目标 %d FPS".format(ScreenRecord.usedSize.value, ScreenRecord.usedFps.intValue)
+            else "「开始」会先把应用带到前台发一次系统授权。录起来之后停止、防录屏都在这块面板里，不用再回应用。",
+            color = entropy.onScrim.copy(alpha = 0.55f), fontSize = 9.sp, lineHeight = 12.sp, maxLines = 2)
     }
     PanelCard("档位") {
         val locked = store.locked(Feature.PROFILE)

@@ -105,6 +105,13 @@ class OverlayService : LifecycleService(), OverlayWindow, SavedStateRegistryOwne
     private val expanded = mutableStateOf(false)
 
     /**
+     * 点空白把大面板收成小球时置位：这颗球只是那块大面板收起来的样子，不是用户改选了
+     * 小球形态，所以再点它应该回到大面板，而不是弹出小球自己那张紧凑卡片。
+     * 用户主动切形态、或主动展开紧凑卡片时清掉 —— 到那时候"小球"才是他选的那一档。
+     */
+    private var reopenAsPanel = false
+
+    /**
      * 正在退场。窗口不是点了就没了：立刻 removeView 等于把动画剪掉，
      * 用户看到的是"啪一下消失"，而音量减键的反馈本来就该是"收起来"这个动作。
      * 这一位只驱动动画，真正的移除由 hideJob 延时之后执行。
@@ -339,6 +346,8 @@ class OverlayService : LifecycleService(), OverlayWindow, SavedStateRegistryOwne
                     themeMode = store.themeMode.value,
                     // 这块垂直居中在右缘，上下都不落在状态栏或操作条底下，那份内边距一分也不需要
                     chrome = OverlayChrome(0f, 0f),
+                    // hide() 会先把两块窗口都留满 ExitAnimMs 再移除，右边不给它这一位就是白等
+                    exiting = exiting.value,
                 )
             }
         }
@@ -547,7 +556,11 @@ class OverlayService : LifecycleService(), OverlayWindow, SavedStateRegistryOwne
             if (store.hudDownTime.longValue >= downTime) return@launch
             if (store.overlayDownTime.longValue >= downTime) return@launch
             // 等完这 260ms 里形态可能已经被别的路径改过，所以这里重新问一次再决定收哪一层
-            if (form == OverlayForm.PANEL) setForm(OverlayForm.BALL) else setExpanded(false)
+            if (form == OverlayForm.PANEL) {
+                setForm(OverlayForm.BALL)
+                // 这一条收起路径是"临时收一下"，不是"换成小球"，给下一次点球留个记号
+                reopenAsPanel = true
+            } else setExpanded(false)
         }
     }
 
@@ -604,6 +617,8 @@ class OverlayService : LifecycleService(), OverlayWindow, SavedStateRegistryOwne
         // 展开态属于小球那一套：切形态时收掉，否则回到小球会顶着一个
         // 半开不开的控制台，窗口尺寸和内容对不上
         expanded.value = false
+        // 主动换形态就是改选了那一档，"点空白临时收起"那层意思到此作废
+        reopenAsPanel = false
         applyLayout()
     }
 
@@ -613,6 +628,10 @@ class OverlayService : LifecycleService(), OverlayWindow, SavedStateRegistryOwne
         if (form == OverlayForm.PANEL) {
             // 大面板没有"展开"这一档，整块屏左半边本来就是它的展开态
             setForm(OverlayForm.BALL)
+            return
+        }
+        if (value && reopenAsPanel) {
+            setForm(OverlayForm.PANEL)
             return
         }
         expanded.value = value
