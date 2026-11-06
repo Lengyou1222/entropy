@@ -1,0 +1,26 @@
+# 构建产物与本机配置，不进版本库
+.gradle/
+build/
+*/build/
+app/.cxx/
+daemon/out/
+local.properties
+
+# stageDaemon* 任务从 daemon/out 复制进 assets 的 native 产物。
+# 它们是编译结果不是源文件，而且三个 ABI 加起来十几 MB，不该压在 git 历史里。
+# 没有这些文件时 APK 照样能编：App 会退回 Root 直写路径。
+app/src/main/assets/native/
+
+# 签名材料：私库和密码一旦进 git 历史就再也拿不掉了
+keystore.properties
+entropy.keystore
+*.jks
+*.keystore
+
+# 出包结果
+dist/
+
+# IDE
+.idea/
+*.iml
+.vscode/
