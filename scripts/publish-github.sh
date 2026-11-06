@@ -15,6 +15,8 @@
 #
 # 远端默认 https://github.com/Lengyou1222/entropy.git；换仓库用
 #   ENTROPY_REMOTE=git@github.com:you/entropy.git bash scripts/publish-github.sh
+# 本地加速的合并 CA 默认取 ~/.git-ca/bundle.crt，换位置用
+#   ENTROPY_CA_BUNDLE=/path/to/bundle.crt bash scripts/publish-github.sh
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -29,6 +31,30 @@ die() { echo "错误: $*" >&2; exit 1; }
 run() {
     if [[ $DRY == 1 ]]; then echo "  [dry-run] $*"; else echo "  \$ $*"; "$@"; fi
 }
+
+# ------------------------------------------------------------------ #
+# 0. TLS：本地加速工具会自己给 github.com 签一张证书                    #
+#                                                                    #
+#   Watt Toolkit 这类工具往 hosts 里写了一批 127.0.0.1，TLS 在本地终结。  #
+#   git 默认的 schannel 后端因此报 CRYPT_E_NO_REVOCATION_CHECK（那张证书  #
+#   没有吊销信息可查），而且这个内置 git 不认 http.schannelCheckRevocation， #
+#   写 -c 也写全局都没用。                                              #
+#                                                                    #
+#   这里换 openssl 后端 + 一份合并 CA：Mozilla 根包 + 那张 SteamTools 根。 #
+#   证书校验一项都没关 —— 链路照验，只是额外认一张你自己已经装进系统受信任  #
+#   根的 CA（加速工具装的）。文件不存在（换机器、或加速工具重签过）就退回    #
+#   默认后端，不硬撑。重做这份文件：                                      #
+#     1) 从证书 store 导出 SteamTools 根（der），                        #
+#        openssl x509 -inform DER -in steamtools.der -out steamtools.pem #
+#     2) cat <git>/mingw64/etc/ssl/certs/ca-bundle.crt steamtools.pem \  #
+#        > bundle.crt                                                   #
+# ------------------------------------------------------------------ #
+CA_BUNDLE="${ENTROPY_CA_BUNDLE:-$HOME/.git-ca/bundle.crt}"
+GIT_TLS=()
+if [[ -f "$CA_BUNDLE" ]]; then
+    GIT_TLS=(-c http.sslBackend=openssl -c "http.sslCAInfo=$CA_BUNDLE")
+    echo "-- TLS：openssl 后端 + $CA_BUNDLE"
+fi
 
 cd "$ROOT"
 
@@ -74,7 +100,7 @@ if [[ $DRY == 0 ]]; then
     git remote get-url origin >/dev/null 2>&1 || run git remote add origin "$REMOTE_URL"
     cur="$(git remote get-url origin)"
     [[ "$cur" == "$REMOTE_URL" ]] || { echo "  origin 已指向 $cur，沿用它"; }
-    run git push -u origin "$BRANCH"
+    run git "${GIT_TLS[@]}" push -u origin "$BRANCH"
 else
     echo "  [dry-run] git push -u origin $BRANCH"
 fi
