@@ -32,18 +32,11 @@
 //    这两样压在同一块黑底上就是"岛上的字整个看不见"，而这块东西的全部价值就是那几个字。
 package com.entropy.overlay
 
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.ContentTransform
-import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -66,10 +59,15 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.pointer.pointerInput
@@ -198,39 +196,48 @@ fun SafeHud(
         val density = LocalDensity.current
         val capW = with(density) { capWidthPx.toDp() }
         val capH = with(density) { capHeightPx.toDp() }
-        Box(Modifier.widthIn(max = capW).heightIn(max = capH), contentAlignment = Alignment.TopCenter) {
-            AnimatedContent(
-                targetState = win.expanded,
-                transitionSpec = {
-                    // 展开用"从小长大"而不是交叉淡入：灵动岛的读感是同一块东西在变形，
-                    // 两帧各画一半会读成两块窗。
-                    // sizeTransform 显式关掉 clip：默认的 SizeTransform(clip = true) 会在
-                    // 从 32dp 长到三百多 dp 的那几百毫秒里把容器裁得比内容矮，底下几行字
-                    // 被切成半截 —— 实测抓到的"展开渲染异常"就是这个瞬时状态。
-                    // 展开态本来就有 verticalScroll 与上界兜着，不需要靠裁切防溢出
-                    if (targetState)
-                        ContentTransform(
-                            targetContentEnter = scaleIn(initialScale = 0.84f, animationSpec = spring(
-                                dampingRatio = 0.72f, stiffness = Spring.StiffnessMediumLow)) +
-                                fadeIn(tween(160)),
-                            initialContentExit = fadeOut(tween(80)),
-                            sizeTransform = SizeTransform(clip = false)
-                        )
-                    else
-                        ContentTransform(
-                            targetContentEnter = fadeIn(tween(140)),
-                            initialContentExit = scaleOut(targetScale = 0.88f,
-                                animationSpec = tween(150)) + fadeOut(tween(110)),
-                            sizeTransform = SizeTransform(clip = false)
-                        )
-                },
-                label = "islandBody"
-            ) { open ->
-                if (open) Detail(win, reading, v, tint, items, capW, capH)
-                else Compact(win, v, tint, reading, items)
+        // 形变不走 AnimatedContent：它的容器尺寸是从 32dp 一路长到几百 dp 的，而悬浮窗
+        // 的 surface 就等于容器尺寸。实测抓到的一帧里，卡片被 surface 横着切出一条直边，
+        // 正好从第一格读数的中间削过去 —— 关掉 SizeTransform 的 clip 也躲不掉，切的那一刀
+        // 是窗口自己的边界。这里让壳一步到位换成目标尺寸，形变全部放到绘制阶段：
+        // 缩放与淡入画在已经够大的 surface 里，切不到任何东西。
+        val morph by animateFloatAsState(
+            targetValue = if (win.expanded) 1f else 0f,
+            animationSpec = if (win.expanded)
+                spring(dampingRatio = 0.72f, stiffness = Spring.StiffnessMediumLow)
+            else tween(170),
+            label = "islandMorph"
+        )
+        // 服务给的上界跟着状态走：一收起就掉回 40dp 那一档。可卡片还要淡出 170ms，
+        // 这段时间它得按展开那一档量，否则壳先缩、卡片被压成一条 —— 正是要修的裁切。
+        // 所以自己留一份展开档上界，只在卡片还画着的时候用它
+        var openCap by remember { mutableStateOf(capW to capH) }
+        if (win.expanded) openCap = capW to capH
+        val shell = if (morph > 0f) openCap else capW to capH
+        Box(Modifier.widthIn(max = shell.first).heightIn(max = shell.second),
+            contentAlignment = Alignment.TopCenter) {
+            // 两块都在 morph 落在 (0,1) 的那一段里同时画：胶囊淡出的同时卡片淡入，
+            // 交叠覆盖整段形变，中间不会出现某一帧两头都是空的（实测那样会闪一下）
+            if (morph < 1f) Box(Modifier.morphLayer(1f - morph)) {
+                Compact(win, v, tint, reading, items)
+            }
+            if (morph > 0f) Box(Modifier.morphLayer(morph)) {
+                Detail(win, reading, v, tint, items, shell.first, shell.second)
             }
         }
     }
+}
+
+/**
+ * 形变期间唯一动着的两层：不透明度与"从顶部中心缩放"。
+ * 两者都由同一个 alpha 驱动，为 0 时缩到 0.88 —— 淡出与收缩读起来是同一个动作。
+ */
+private fun Modifier.morphLayer(alpha: Float): Modifier = graphicsLayer {
+    this.alpha = alpha
+    val s = 0.88f + 0.12f * alpha
+    scaleX = s
+    scaleY = s
+    transformOrigin = TransformOrigin(0.5f, 0f)
 }
 
 /**
