@@ -37,6 +37,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.geometry.CornerRadius
@@ -167,7 +168,9 @@ fun HighlightColorCard(
                         ) {
                             Box(Modifier.size(10.dp).clip(RoundedCornerShape(3.dp)).background(c))
                             Spacer(Modifier.size(width = 5.dp, height = 1.dp))
-                            Text(name, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface)
+                            Text(name, fontSize = 12.sp, maxLines = 1, softWrap = false,
+                                overflow = TextOverflow.Ellipsis,
+                                color = MaterialTheme.colorScheme.onSurface)
                         }
                     }
                     repeat(3 - rowItems.size) { Spacer(Modifier.weight(1f)) }
@@ -182,7 +185,8 @@ fun HighlightColorCard(
                 modifier = Modifier.weight(1.5f),
                 onClick = { onApply(argbOf(hue, sat, valB)); dirty = false },
                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
-            ) { Text("应用这个颜色", maxLines = 1, fontSize = 13.sp) }
+            ) { Text("应用这个颜色", maxLines = 1, softWrap = false,
+                    overflow = TextOverflow.Ellipsis, fontSize = 13.sp) }
             OutlinedButton(
                 modifier = Modifier.weight(1f),
                 onClick = {
@@ -193,12 +197,14 @@ fun HighlightColorCard(
                     onApply(defaultArgb)
                 },
                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
-            ) { Text("还原默认", maxLines = 1, fontSize = 13.sp) }
+            ) { Text("还原默认", maxLines = 1, softWrap = false,
+                    overflow = TextOverflow.Ellipsis, fontSize = 13.sp) }
             if (allowFollowTheme) OutlinedButton(
                 modifier = Modifier.weight(1f),
                 onClick = { onApply(0); dirty = false },
                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
-            ) { Text("跟随方案", maxLines = 1, fontSize = 13.sp) }
+            ) { Text("跟随方案", maxLines = 1, softWrap = false,
+                    overflow = TextOverflow.Ellipsis, fontSize = 13.sp) }
         }
     }
 }

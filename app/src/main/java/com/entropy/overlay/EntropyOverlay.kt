@@ -46,14 +46,13 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -89,7 +88,9 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
@@ -97,7 +98,10 @@ import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -408,19 +412,17 @@ private fun BallConsole(
         }
     }, contentAlignment = Alignment.Center) {
         if (!expanded) {
-            // 小球以前是一团裸发光，和应用里"底板 + 发丝描边 + 顶部一道强调色渐变"的卡片
-            // 语言没有关系，贴在桌面上就像别人家的挂件。这里给它套一颗同族的小圆角方块：
-            // 底板取 overlayScrim、描边与渐变取温度色，用户换配色方案它就跟着换。
+            // 用户明确不要那颗圆角方块底板和描边：一颗带边框的方块贴在桌面上，
+            // 既不像"原子"也不像应用里的卡片，只是块控件。这里改回一团自己发光的圆：
+            // 底色是从中心淡出到透明的温度色径向渐变，画不到边界就已经透明，
+            // 所以没有硬边、没有描边，也不需要 clip；颜色仍然跟着配色方案与温度走。
             Box(
                 Modifier
                     .size((46 * ballScale * pop).dp)
-                    .clip(RoundedCornerShape(15.dp))
-                    .background(entropy.overlayScrim.copy(alpha = 0.96f))
-                    .background(Brush.verticalGradient(
-                        listOf(tint.copy(alpha = 0.22f), Color.Transparent,
-                            tint.copy(alpha = 0.07f))))
-                    .border(BorderStroke(1.dp, tint.copy(alpha = 0.42f)),
-                        RoundedCornerShape(15.dp))
+                    .background(Brush.radialGradient(
+                        0f to tint.copy(alpha = 0.30f),
+                        0.55f to tint.copy(alpha = 0.12f),
+                        1f to Color.Transparent))
                     .pointerInput(Unit) {
                         // 这里不写 onDoubleTap：双击归 OverlayRootView 那一层数（见那里的注释）。
                         // 第一下由 onTap 展开卡片，第二下在 View 层配成对，才换得成整面控制台。
@@ -433,11 +435,16 @@ private fun BallConsole(
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     // 数字只在球够大时画：1.0 倍率下这一格只有约 30dp，塞两个汉字会变成糊的一团
-                    Atom(tint = tint, alert = fused, contained = true,
-                        modifier = Modifier.size(28.dp))
+                    Atom(tint = tint, alert = fused, contained = false,
+                        modifier = Modifier.size(30.dp))
                     Text(
                         if (ballScale >= 1.15f && tempC != null) "%.0f℃".format(tempC) else "熵",
-                        color = entropy.onScrim, fontSize = (9 * ballScale).sp,
+                        // 没有底板就没有"底色"可依了：字压在深色游戏画面上要够亮，压在
+                        // 白色桌面上又不能消失，所以给亮色字配一道投影兜住两头
+                        color = lerp(tint, Color.White, 0.55f),
+                        style = TextStyle(shadow = Shadow(
+                            color = Color(0x99000000), offset = Offset(0f, 1f), blurRadius = 4f)),
+                        fontSize = (9 * ballScale).sp,
                         fontWeight = FontWeight.Bold, maxLines = 1
                     )
                 }
@@ -862,47 +869,63 @@ private fun SideConsole(
     }
 }
 
+/**
+ * 大面板抬头。
+ *
+ * 这一行的固定内容（原子 + 熵 + 平台徽标 + 等级徽标 + 温度 + 两个动作）本来要 247dp，
+ * 而竖屏窄机器上左面板整块只有 208dp：温度和"小球""隐藏"一起被窗口裁掉，
+ * 用户连"收成小球"都点不到。宽度不够时先退掉两处次要信息 ——
+ * 平台与等级在右面板"我的"页里都还在，动作键和温度是这一行不能丢的东西。
+ */
 @Composable
 private fun PanelHeader(win: OverlayWindow, store: EntropyStore, state: UiState) {
     val entropy = LocalEntropyColors.current
     val tempC = state.telemetry?.maxTempC
     val fused = state.safety.fused
-    Row(
-        Modifier.fillMaxWidth().padding(start = 12.dp, end = 10.dp, top = 2.dp, bottom = 6.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Atom(tint = if (fused) entropy.warn else tempColor(entropy, tempC ?: 30f),
-            alert = fused, contained = true, modifier = Modifier.size(22.dp))
-        Spacer(Modifier.width(7.dp))
-        Text("熵", color = entropy.onScrim, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-        Spacer(Modifier.width(6.dp))
-        // 平台徽标紧跟在"熵"字后面：这台机器是高通还是天玑，决定了下面一堆节点
-        // 能不能调，用户报障时最先要说的也是这个
-        SocBadge(store.bridge.profile.family)
-        Spacer(Modifier.width(6.dp))
-        // 等级徽标就放在标题旁边：悬浮窗里灰掉的按钮必须能就地解释，
-        // 而不是让用户回 App 里翻是哪一档
-        Text(store.level.value.label, color = entropy.onScrim.copy(alpha = 0.6f), fontSize = 10.sp,
-            modifier = Modifier
-                .clip(RoundedCornerShape(999.dp))
-                .background(entropy.onScrim.copy(alpha = 0.10f))
-                .padding(horizontal = 7.dp, vertical = 2.dp))
-        Spacer(Modifier.weight(1f))
-        Text(tempC?.let { "%.1f℃".format(it) } ?: "—",
-            color = if (fused) entropy.warn else tempColor(entropy, tempC ?: 30f),
-            fontSize = 12.sp, fontWeight = FontWeight.Bold)
-        Spacer(Modifier.width(9.dp))
-        // 用文字而不是箭头字形：这个动作是"收成原子小球"，
-        // 单个箭头符号没人能猜出它代表什么
-        Text("小球", color = entropy.onScrim.copy(alpha = 0.6f), fontSize = 12.sp,
-            modifier = Modifier.pointerInput(Unit) {
-                detectTapGestures(onTap = { win.setForm(OverlayForm.BALL) })
-            })
-        Spacer(Modifier.width(9.dp))
-        Text("隐藏", color = entropy.onScrim.copy(alpha = 0.6f), fontSize = 12.sp,
-            modifier = Modifier.pointerInput(Unit) {
-                detectTapGestures(onTap = { win.hide() })
-            })
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val tight = maxWidth < 250.dp
+        Row(
+            Modifier.padding(start = 12.dp, end = 10.dp, top = 2.dp, bottom = 6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Atom(tint = if (fused) entropy.warn else tempColor(entropy, tempC ?: 30f),
+                alert = fused, contained = true, modifier = Modifier.size(22.dp))
+            Spacer(Modifier.width(7.dp))
+            Text("熵", color = entropy.onScrim, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+            Spacer(Modifier.width(5.dp))
+            // 平台徽标紧跟在"熵"字后面：这台机器是高通还是天玑，决定了下面一堆节点
+            // 能不能调，用户报障时最先要说的也是这个
+            SocBadge(store.bridge.profile.family, withText = !tight)
+            if (!tight) {
+                Spacer(Modifier.width(6.dp))
+                // 等级徽标就放在标题旁边：悬浮窗里灰掉的按钮必须能就地解释，
+                // 而不是让用户回 App 里翻是哪一档
+                Text(store.level.value.label, color = entropy.onScrim.copy(alpha = 0.6f),
+                    fontSize = 10.sp, maxLines = 1,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(entropy.onScrim.copy(alpha = 0.10f))
+                        .padding(horizontal = 7.dp, vertical = 2.dp))
+            }
+            Spacer(Modifier.weight(1f))
+            Text(tempC?.let { "%.1f℃".format(it) } ?: "—",
+                color = if (fused) entropy.warn else tempColor(entropy, tempC ?: 30f),
+                fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+            Spacer(Modifier.width(9.dp))
+            // 用文字而不是箭头字形：这个动作是"收成原子小球"，
+            // 单个箭头符号没人能猜出它代表什么
+            Text("小球", color = entropy.onScrim.copy(alpha = 0.6f), fontSize = 12.sp,
+                maxLines = 1,
+                modifier = Modifier.pointerInput(Unit) {
+                    detectTapGestures(onTap = { win.setForm(OverlayForm.BALL) })
+                })
+            Spacer(Modifier.width(9.dp))
+            Text("隐藏", color = entropy.onScrim.copy(alpha = 0.6f), fontSize = 12.sp,
+                maxLines = 1,
+                modifier = Modifier.pointerInput(Unit) {
+                    detectTapGestures(onTap = { win.hide() })
+                })
+        }
     }
 }
 
@@ -995,7 +1018,7 @@ internal fun PageTitle(text: String, hint: String) {
     val entropy = LocalEntropyColors.current
     Column {
         Text(text, color = entropy.onScrim, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-        Text(hint, color = entropy.onScrim.copy(alpha = 0.45f), fontSize = 9.sp, maxLines = 2,
+        Text(hint, color = entropy.onScrim.copy(alpha = 0.45f), fontSize = 9.sp,
             lineHeight = 12.sp)
     }
 }
@@ -1276,10 +1299,10 @@ private fun SystemSection(win: OverlayWindow, store: EntropyStore, state: UiStat
             fontSize = 10.sp
         )
         Spacer(Modifier.height(6.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Chip(if (state.busy) "运行中…" else "一键运行", false, Modifier.weight(1f),
+        ChipRow {
+            Chip(if (state.busy) "运行中…" else "一键运行", false,
                 enabled = !state.busy && !store.locked(Feature.RUN_DAEMON)) { store.startDaemon() }
-            Chip("请求 Root", false, Modifier.weight(1f)) { store.requestRoot() }
+            Chip("请求 Root", false) { store.requestRoot() }
         }
         LockNote(Feature.RUN_DAEMON, store.locked(Feature.RUN_DAEMON))
         if (state.lastMessage.isNotEmpty()) Text(
@@ -1293,12 +1316,12 @@ private fun SystemSection(win: OverlayWindow, store: EntropyStore, state: UiStat
             else "甜点 ${prof.cpuSweetKhz / 1000}M · 极限 ${prof.cpuAbsLimitKhz / 1000}M · 完成 ${prof.done}%",
             color = entropy.onScrim.copy(alpha = 0.6f), fontSize = 9.sp)
         Spacer(Modifier.height(6.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Chip(if (state.probing) "中止探测" else "开始探测", state.probing, Modifier.weight(1f),
+        ChipRow {
+            Chip(if (state.probing) "中止探测" else "开始探测", state.probing,
                 enabled = !locked || state.probing) {
                 if (state.probing) store.stopProbe() else store.probe()
             }
-            Chip("打开熵", false, Modifier.weight(1f)) { win.openApp() }
+            Chip("打开熵", false) { win.openApp() }
         }
         LockNote(Feature.PROBE, locked)
     }
@@ -1307,9 +1330,9 @@ private fun SystemSection(win: OverlayWindow, store: EntropyStore, state: UiStat
             color = entropy.onScrim.copy(alpha = 0.6f), fontSize = 10.sp)
         Spacer(Modifier.height(6.dp))
         val locked = store.locked(Feature.FREEZE)
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Chip("刷新状态", false, Modifier.weight(1f)) { store.refreshFreezer() }
-            Chip("全部解冻", false, Modifier.weight(1f), enabled = !locked) { store.resetAll() }
+        ChipRow {
+            Chip("刷新状态", false) { store.refreshFreezer() }
+            Chip("全部解冻", false, enabled = !locked) { store.resetAll() }
         }
         LockNote(Feature.FREEZE, locked)
     }
@@ -1338,11 +1361,11 @@ private fun SkinSection(win: OverlayWindow, store: EntropyStore, state: UiState)
             color = LocalEntropyColors.current.onScrim.copy(alpha = 0.4f), fontSize = 9.sp)
     }
     PanelCard("形态") {
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Chip("原子小球", store.overlayForm.value == OverlayForm.BALL, Modifier.weight(1f)) {
+        ChipRow {
+            Chip("原子小球", store.overlayForm.value == OverlayForm.BALL) {
                 win.setForm(OverlayForm.BALL)
             }
-            Chip("左侧控制台", store.overlayForm.value == OverlayForm.PANEL, Modifier.weight(1f)) {
+            Chip("左侧控制台", store.overlayForm.value == OverlayForm.PANEL) {
                 win.setForm(OverlayForm.PANEL)
             }
         }
@@ -1379,12 +1402,26 @@ internal fun PanelCard(title: String, content: @Composable () -> Unit) {
 
 internal data class MetricData(val label: String, val value: String, val color: Color)
 
-/** 遥测读数：一行三个。半屏宽度放不下更多，硬塞成一行会把数字压成竖排 */
+/** 一格读数的下限宽度，算列数和补空位都用同一个值 */
+private val MetricCellMin = 62.dp
+
+/**
+ * 遥测读数。一行几个由当前宽度算出来，不写死三个：
+ * 竖屏窄机器上左面板整块 208dp，卡片内宽只有 114dp，硬排三格会把第三格连字一起切到窗口外。
+ * 最后一行不满时补空位，同一批格子才不会忽宽忽窄。
+ */
 @Composable
 internal fun MetricGrid(items: List<MetricData>) {
-    items.chunked(3).forEach { row ->
-        Row(Modifier.fillMaxWidth().padding(bottom = 4.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            row.forEach { Metric(it.label, it.value, it.color) }
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val cols = (((maxWidth + 10.dp) / (MetricCellMin + 10.dp)).toInt()).coerceIn(1, 3)
+        items.chunked(cols).forEach { row ->
+            Row(
+                Modifier.fillMaxWidth().padding(bottom = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                row.forEach { Metric(it.label, it.value, it.color, Modifier.weight(1f)) }
+                repeat(cols - row.size) { Spacer(Modifier.weight(1f)) }
+            }
         }
     }
 }
@@ -1470,11 +1507,13 @@ internal fun OverlaySlider(
 }
 
 @Composable
-internal fun Metric(label: String, value: String, color: Color) {
+internal fun Metric(label: String, value: String, color: Color, modifier: Modifier = Modifier) {
     val entropy = LocalEntropyColors.current
-    Column {
-        Text(value, color = color, fontSize = 13.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-        Text(label, color = entropy.onScrim.copy(alpha = 0.45f), fontSize = 9.sp, maxLines = 1)
+    Column(modifier) {
+        Text(value, color = color, fontSize = 13.sp, fontWeight = FontWeight.Bold,
+            maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(label, color = entropy.onScrim.copy(alpha = 0.55f), fontSize = 9.sp,
+            maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -1530,7 +1569,8 @@ internal fun Chip(
                 selected -> scheme.onPrimary
                 else -> entropy.onScrim.copy(alpha = 0.85f)
             },
-            fontSize = 10.sp, fontWeight = FontWeight.Medium, maxLines = 1)
+            fontSize = 10.sp, fontWeight = FontWeight.Medium, maxLines = 2,
+            textAlign = TextAlign.Center)
     }
 }
 

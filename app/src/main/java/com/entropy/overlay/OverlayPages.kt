@@ -30,6 +30,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -335,22 +336,41 @@ internal fun SystemInfoPage(store: EntropyStore, state: UiState) {
 @Composable
 private fun SubLine(text: String) {
     val entropy = LocalEntropyColors.current
-    Text(text, color = entropy.onScrim.copy(alpha = 0.5f), fontSize = 8.sp, maxLines = 1,
-        modifier = Modifier.fillMaxWidth().padding(start = 74.dp, top = 1.dp))
+    Text(text, color = entropy.onScrim.copy(alpha = 0.6f), fontSize = 8.sp,
+        lineHeight = 10.sp, modifier = Modifier.fillMaxWidth().padding(start = 8.dp, top = 1.dp))
 }
 
-/** 一行键值。值单行截断：内核串和热区名都长，换行会把这张卡拉成一屏只装它 */
+/**
+ * 一行键值。
+ *
+ * 两种排法按实际宽度挑：宽屏（横屏、平板）上左键右值一行放得下，键槽 74dp；
+ * 竖屏窄机器上右面板整块只有 146dp，减掉标签栏和内边距只剩 74dp 内宽 ——
+ * 键槽把宽度吃干，值那一列量到 0dp，等于整页读数凭空消失（就是这个 bug）。
+ * 窄的那一档改成上下两行，键一小字压在上面，值自己占满一行。
+ */
 @Composable
 private fun InfoLine(key: String, value: String) {
     val entropy = LocalEntropyColors.current
-    Row(
-        Modifier.fillMaxWidth().padding(vertical = 2.dp),
-        verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        Text(key, color = entropy.onScrim.copy(alpha = 0.5f), fontSize = 9.sp, maxLines = 1,
-            modifier = Modifier.width(74.dp))
-        Text(value, color = entropy.onScrim, fontSize = 9.sp, maxLines = 1,
-            lineHeight = 12.sp, modifier = Modifier.weight(1f))
+    BoxWithConstraints(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+        if (maxWidth >= 170.dp) {
+            Row(
+                verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(key, color = entropy.onScrim.copy(alpha = 0.5f), fontSize = 9.sp, maxLines = 1,
+                    modifier = Modifier.width(74.dp))
+                Text(value, color = entropy.onScrim, fontSize = 9.sp, maxLines = 2,
+                    lineHeight = 12.sp, overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f))
+            }
+        } else {
+            Column {
+                Text(key, color = entropy.onScrim.copy(alpha = 0.55f), fontSize = 8.sp, maxLines = 1,
+                    overflow = TextOverflow.Ellipsis)
+                // 值这一列在窄面板上一行只有八个字的位子：内核串、"60 / 90 / 120 / 144 / 165"
+                // 这种读数按两行算会被省略号收掉，而这页存在的意义就是把读数报全
+                Text(value, color = entropy.onScrim, fontSize = 9.sp, lineHeight = 12.sp)
+            }
+        }
     }
 }
 
@@ -379,31 +399,29 @@ internal fun CpuIdentityCard(store: EntropyStore, state: UiState) {
     val reveal = alphaOf(clock, r.index, rows)
 
     PanelCard("CPU 身份 · 你在哪一档") {
-        Row(verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-            // 等级胶囊：无结论时写"未评级"而不是硬配一档颜色
-            val label = r.tier?.label ?: "未评级"
-            val strength = if (r.tier == null) 0.30f else 1f - r.index * 0.16f
-            Box(
-                Modifier.alpha(reveal).clip(RoundedCornerShape(999.dp))
-                    .background(scheme.primary.copy(alpha = 0.22f * strength + 0.06f))
-                    .border(1.dp, scheme.primary.copy(alpha = 0.5f * strength), RoundedCornerShape(999.dp))
-                    .padding(horizontal = 9.dp, vertical = 3.dp)
-            ) {
-                Text(label, color = if (r.tier == null) entropy.onScrim.copy(alpha = 0.55f)
-                else scheme.primary, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-            }
-            Column(Modifier.weight(1f)) {
-                Text(r.chipName, color = entropy.onScrim, fontSize = 11.sp, maxLines = 1,
-                    fontWeight = FontWeight.Medium)
-                Text(
-                    when (r.basis) {
-                        CpuRanking.Basis.MODEL -> "型号表命中 · 表内自评 ${r.score}/100"
-                        CpuRanking.Basis.ESTIMATED -> "型号表没有 · 按频率与核数估算 ${r.score}/100"
-                        CpuRanking.Basis.NONE -> r.reason
-                    },
-                    color = entropy.onScrim.copy(alpha = 0.45f), fontSize = 8.sp, maxLines = 2,
-                    lineHeight = 11.sp)
+        // 那枚胶囊最长是"未评级"三个 11sp 的字，连左右内边距要 51dp，而右面板卡片的内宽只有
+        // 74dp：并排时型号名只剩 16dp，整行字等于看不见。宽度不够就把胶囊挪到型号名上面一行。
+        BoxWithConstraints(Modifier.fillMaxWidth()) {
+            val stacked = maxWidth < 170.dp
+            Row(verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                if (!stacked) Box(Modifier.alpha(reveal)) { TierBadge(r.tier) }
+                Column(if (stacked) Modifier.fillMaxWidth() else Modifier.weight(1f)) {
+                    if (stacked) {
+                        Box(Modifier.alpha(reveal)) { TierBadge(r.tier) }
+                        Spacer(Modifier.height(6.dp))
+                    }
+                    Text(r.chipName, color = entropy.onScrim, fontSize = 11.sp, maxLines = 2,
+                        overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium)
+                    Text(
+                        when (r.basis) {
+                            CpuRanking.Basis.MODEL -> "型号表命中 · 表内自评 ${r.score}/100"
+                            CpuRanking.Basis.ESTIMATED -> "型号表没有 · 按频率与核数估算 ${r.score}/100"
+                            CpuRanking.Basis.NONE -> r.reason
+                        },
+                        color = entropy.onScrim.copy(alpha = 0.5f), fontSize = 8.sp, maxLines = 3,
+                        lineHeight = 11.sp)
+                }
             }
         }
         Spacer(Modifier.height(7.dp))
@@ -767,7 +785,7 @@ internal fun GuidePage(store: EntropyStore, state: UiState) {
                 }
             }
             Spacer(Modifier.height(6.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            ChipRow {
                 Chip("上一节", false, enabled = back >= 0) { if (back >= 0) open = back }
                 Chip("下一节", false, enabled = next >= 0) { if (next >= 0) open = next }
                 Chip("回到开头", false, enabled = idx != 0) { open = 0 }
@@ -806,18 +824,20 @@ internal fun QuickSwitchPage(win: OverlayWindow, store: EntropyStore, state: UiS
         ToggleRow("隐藏后的按键引导", store.prefs.showVolumeGuide) {
             store.prefs.showVolumeGuide = it
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Chip("原子小球", store.overlayForm.value == OverlayForm.BALL, Modifier.weight(1f)) {
+        // ChipRow 而不是两个 weight(1f)：右面板在竖屏上内宽只有 74dp，两枚各分一半就是 34dp，
+        // "原子小球"这类四字标签会被切成两个字。换行让每枚保持自己的内容宽，装不下就下一行
+        ChipRow {
+            Chip("原子小球", store.overlayForm.value == OverlayForm.BALL) {
                 win.setForm(OverlayForm.BALL)
             }
-            Chip("左侧控制台", store.overlayForm.value == OverlayForm.PANEL, Modifier.weight(1f)) {
+            Chip("控制台", store.overlayForm.value == OverlayForm.PANEL) {
                 win.setForm(OverlayForm.PANEL)
             }
         }
         Spacer(Modifier.height(6.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Chip("隐藏浮窗", false, Modifier.weight(1f)) { win.hide() }
-            Chip("打开应用", false, Modifier.weight(1f)) { win.openApp() }
+        ChipRow {
+            Chip("隐藏浮窗", false) { win.hide() }
+            Chip("打开应用", false) { win.openApp() }
         }
     }
     PanelCard("录屏") {
@@ -829,7 +849,7 @@ internal fun QuickSwitchPage(win: OverlayWindow, store: EntropyStore, state: UiS
             if (store.preventRecord.value) "已开：浮窗和灵动岛不进成片，被采集到的那几块是黑块 —— 平台就是这么合成的。" +
                 "拦得住录屏与截屏，拦不住对着屏幕拍照。"
             else "未开：浮窗和灵动岛会一起被录进画面。",
-            color = entropy.onScrim.copy(alpha = 0.55f), fontSize = 9.sp, lineHeight = 12.sp, maxLines = 3)
+            color = entropy.onScrim.copy(alpha = 0.55f), fontSize = 9.sp, lineHeight = 12.sp)
         Spacer(Modifier.height(6.dp))
         Chip(
             if (recording) "停止录制 %d:%02d".format(sec / 60, sec % 60) else "开始录制",
@@ -850,39 +870,40 @@ internal fun QuickSwitchPage(win: OverlayWindow, store: EntropyStore, state: UiS
         Text(
             if (recording) "%s · 目标 %d FPS".format(ScreenRecord.usedSize.value, ScreenRecord.usedFps.intValue)
             else "「开始」会先把应用带到前台发一次系统授权。录起来之后停止、防录屏都在这块面板里，不用再回应用。",
-            color = entropy.onScrim.copy(alpha = 0.55f), fontSize = 9.sp, lineHeight = 12.sp, maxLines = 2)
+            color = entropy.onScrim.copy(alpha = 0.55f), fontSize = 9.sp, lineHeight = 12.sp)
     }
     PanelCard("档位") {
         val locked = store.locked(Feature.PROFILE)
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Chip("省电", state.profile == Proto.PROFILE_POWERSAVE, Modifier.weight(1f), enabled = !locked) {
+        ChipRow {
+            Chip("省电", state.profile == Proto.PROFILE_POWERSAVE, enabled = !locked) {
                 store.setProfile(Proto.PROFILE_POWERSAVE)
             }
-            Chip("均衡", state.profile == Proto.PROFILE_BALANCED, Modifier.weight(1f), enabled = !locked) {
+            Chip("均衡", state.profile == Proto.PROFILE_BALANCED, enabled = !locked) {
                 store.setProfile(Proto.PROFILE_BALANCED)
             }
-            Chip("极速", state.profile == Proto.PROFILE_GAME, Modifier.weight(1f), enabled = !locked) {
+            Chip("极速", state.profile == Proto.PROFILE_GAME, enabled = !locked) {
                 store.setProfile(Proto.PROFILE_GAME)
             }
         }
         LockNote(Feature.PROFILE, locked)
     }
     PanelCard("通道") {
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Chip(if (state.busy) "运行中…" else "运行 entropyd", false, Modifier.weight(1f),
+        // 同上：两枚 weight(1f) 在 74dp 里各分 34dp，"运行 entropyd"只剩五个字母的宽度
+        ChipRow {
+            Chip(if (state.busy) "运行中…" else "运行 entropyd", false,
                 enabled = !state.busy && !store.locked(Feature.RUN_DAEMON)) { store.startDaemon() }
-            Chip("请求 Root", false, Modifier.weight(1f)) { store.requestRoot() }
+            Chip("请求 Root", false) { store.requestRoot() }
         }
         Spacer(Modifier.height(6.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Chip("刷新冻结状态", false, Modifier.weight(1f)) { store.refreshFreezer() }
-            Chip("全部解冻", false, Modifier.weight(1f), enabled = !store.locked(Feature.FREEZE)) {
+        ChipRow {
+            Chip("刷新冻结状态", false) { store.refreshFreezer() }
+            Chip("全部解冻", false, enabled = !store.locked(Feature.FREEZE)) {
                 store.resetAll()
             }
         }
         if (state.lastMessage.isNotEmpty()) Text(
             state.lastMessage, color = entropy.onScrim.copy(alpha = 0.55f), fontSize = 9.sp,
-            maxLines = 2, lineHeight = 12.sp)
+            lineHeight = 12.sp)
     }
     PanelCard("两条线") {
         OverlaySlider(
@@ -922,23 +943,41 @@ private fun ToggleRow(label: String, on: Boolean, onChange: (Boolean) -> Unit) {
     val track by animateColorAsState(
         targetValue = if (on) scheme.primary else entropy.onScrim.copy(alpha = 0.18f),
         animationSpec = tween(200), label = "track")
-    Row(
-        Modifier.fillMaxWidth().padding(vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(label, color = entropy.onScrim.copy(alpha = 0.8f), fontSize = 10.sp,
-            modifier = Modifier.weight(1f))
-        Box(
-            Modifier.size(width = 34.dp, height = 18.dp)
-                .clip(RoundedCornerShape(999.dp))
-                .background(track)
-                .pointerInput(on) { detectTapGestures(onTap = { onChange(!on) }) }
-        ) {
+    BoxWithConstraints(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+        // 开关本体固定 34dp，右面板卡片内宽只有 74dp：并排时标签只剩 40dp，
+        // "隐藏后的按键引导"要竖着排四行。宽度不够就让标签先占满一行，开关落到它下面。
+        val stacked = maxWidth < 110.dp
+        @Composable
+        fun Switch() {
             Box(
-                Modifier.offset(x = (16.dp * knob))
-                    .padding(2.dp).size(14.dp).clip(CircleShape)
-                    .background(if (on) scheme.onPrimary else entropy.onScrim.copy(alpha = 0.7f))
-            )
+                Modifier.size(width = 34.dp, height = 18.dp)
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(track)
+                    .pointerInput(on) { detectTapGestures(onTap = { onChange(!on) }) }
+            ) {
+                Box(
+                    Modifier.offset(x = (16.dp * knob))
+                        .padding(2.dp).size(14.dp).clip(CircleShape)
+                        .background(if (on) scheme.onPrimary else entropy.onScrim.copy(alpha = 0.7f))
+                )
+            }
+        }
+        @Composable
+        fun Label() {
+            Text(label, color = entropy.onScrim.copy(alpha = 0.8f), fontSize = 10.sp,
+                lineHeight = 13.sp, maxLines = if (stacked) 2 else 1)
+        }
+        if (stacked) {
+            Column {
+                Label()
+                Spacer(Modifier.height(4.dp))
+                Switch()
+            }
+        } else {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.weight(1f)) { Label() }
+                Switch()
+            }
         }
     }
 }
@@ -976,23 +1015,26 @@ internal fun CpuRankingPage(store: EntropyStore, state: UiState) {
     PageTitle(SideTab.RANK.label, SideTab.RANK.hint)
 
     PanelCard("本机名次") {
-        Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-            Text(
-                if (mine != null) "第 ${mine.rank} 名" else "未上榜",
-                color = if (mine != null) scheme.primary else entropy.onScrim.copy(alpha = 0.6f),
-                fontSize = 19.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-            Text("/ 榜上 $total 颗", color = entropy.onScrim.copy(alpha = 0.45f), fontSize = 9.sp,
-                maxLines = 1, modifier = Modifier.padding(bottom = 3.dp))
-            Spacer(Modifier.weight(1f))
+        BoxWithConstraints(Modifier.fillMaxWidth()) {
+            // 窄面板里名次和档位徽标挤同一行：19sp 的"第 N 名"本身就吃掉大半宽，
+            // 徽标排到后面只剩几十 dp，"人上人"缩成"人…"。宽度不够就让徽标自己占一行。
+            val tight = maxWidth < 170.dp
             val tier = r.tier
-            val strength = if (tier == null) 0.30f else 1f - tier.ordinal * 0.16f
-            Box(Modifier.clip(RoundedCornerShape(999.dp))
-                    .background(scheme.primary.copy(alpha = 0.22f * strength + 0.06f))
-                    .border(1.dp, scheme.primary.copy(alpha = 0.5f * strength), RoundedCornerShape(999.dp))
-                    .padding(horizontal = 8.dp, vertical = 2.dp)) {
-                Text(tier?.label ?: "未评级",
-                    color = if (tier == null) entropy.onScrim.copy(alpha = 0.55f) else scheme.primary,
-                    fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+            Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                Text(
+                    if (mine != null) "第 ${mine.rank} 名" else "未上榜",
+                    color = if (mine != null) scheme.primary else entropy.onScrim.copy(alpha = 0.6f),
+                    fontSize = 19.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                Text("/ 榜上 $total 颗", color = entropy.onScrim.copy(alpha = 0.45f), fontSize = 9.sp,
+                    maxLines = 1, modifier = Modifier.padding(bottom = 3.dp))
+                if (!tight) {
+                    Spacer(Modifier.weight(1f))
+                    TierBadge(tier)
+                }
+            }
+            if (tight) {
+                Spacer(Modifier.height(4.dp))
+                TierBadge(tier)
             }
         }
         Spacer(Modifier.height(5.dp))
@@ -1009,7 +1051,7 @@ internal fun CpuRankingPage(store: EntropyStore, state: UiState) {
         if (mine != null) {
             Spacer(Modifier.height(4.dp))
             Text("压过 ${(total - mine.rank) * 100 / total}% 的上榜平台，身位 ${(total - mine.rank)} 颗。",
-                color = entropy.onScrim.copy(alpha = 0.7f), fontSize = 9.sp, maxLines = 1)
+                color = entropy.onScrim.copy(alpha = 0.7f), fontSize = 9.sp, maxLines = 2, lineHeight = 12.sp)
         }
     }
 
@@ -1020,21 +1062,24 @@ internal fun CpuRankingPage(store: EntropyStore, state: UiState) {
             val fg by animateColorAsState(
                 targetValue = if (on) scheme.primary else entropy.onScrim.copy(alpha = 0.5f),
                 animationSpec = tween(EntropyMotion.NORMAL), label = "distFg")
-            Row(
-                Modifier.fillMaxWidth().padding(vertical = 2.dp),
-                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                Text("${i + 1} ${t.label}", color = fg, fontSize = 9.sp, maxLines = 1,
-                    fontWeight = if (on) FontWeight.Bold else FontWeight.Normal,
-                    modifier = Modifier.width(52.dp))
-                Box(Modifier.weight(1f).height(4.dp).clip(CircleShape)
+            // 档位名最长是"人上人"，配上一根进度条再加个数，窄面板里横着排怎么都放不下；
+            // 原来那个固定 52dp 的标签列更直接把条挤成 0 宽。改成上下两段：字一行，条通栏一行。
+            Column(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("${i + 1} ${t.label}", color = fg, fontSize = 9.sp, maxLines = 1,
+                        softWrap = false, overflow = TextOverflow.Ellipsis,
+                        fontWeight = if (on) FontWeight.Bold else FontWeight.Normal,
+                        modifier = Modifier.weight(1f, fill = false))
+                    Text("$n 颗", color = fg, fontSize = 8.sp, maxLines = 1,
+                        modifier = Modifier.weight(1f), textAlign = TextAlign.End)
+                }
+                Spacer(Modifier.height(3.dp))
+                Box(Modifier.fillMaxWidth().height(4.dp).clip(CircleShape)
                         .background(entropy.onScrim.copy(alpha = 0.10f))) {
                     Box(Modifier.fillMaxWidth(if (total > 0) n.toFloat() / total else 0f)
                             .fillMaxHeight().clip(CircleShape)
                             .background(if (on) scheme.primary else entropy.onScrim.copy(alpha = 0.30f)))
                 }
-                Text("$n", color = fg, fontSize = 9.sp, maxLines = 1,
-                    modifier = Modifier.width(16.dp), textAlign = TextAlign.End)
             }
         }
     }
@@ -1042,8 +1087,8 @@ internal fun CpuRankingPage(store: EntropyStore, state: UiState) {
     blocks.forEachIndexed { gi, b ->
         Column(Modifier.fillMaxWidth().alpha(alphaOf(clock, gi, blocks.size))) {
             PanelCard("${gi + 1} · ${b.tier.label} · ${b.rows.size} 颗") {
-                Text(b.tier.blurb, color = entropy.onScrim.copy(alpha = 0.4f), fontSize = 8.sp,
-                    maxLines = 2, lineHeight = 11.sp)
+                Text(b.tier.blurb, color = entropy.onScrim.copy(alpha = 0.5f), fontSize = 8.sp,
+                    maxLines = 4, lineHeight = 11.sp)
                 Spacer(Modifier.height(4.dp))
                 b.rows.forEach { row -> RankLine(row) }
             }
@@ -1063,11 +1108,32 @@ internal fun CpuRankingPage(store: EntropyStore, state: UiState) {
     }
 }
 
+/** 档位徽标：字号 11sp，最长三字，和名次并排时窄面板装不下，所以能从 Row 里摘出来单独占一行 */
+@Composable
+private fun TierBadge(tier: CpuTier?) {
+    val entropy = LocalEntropyColors.current
+    val scheme = MaterialTheme.colorScheme
+    val strength = if (tier == null) 0.30f else 1f - tier.ordinal * 0.16f
+    Box(Modifier.clip(RoundedCornerShape(999.dp))
+            .background(scheme.primary.copy(alpha = 0.22f * strength + 0.06f))
+            .border(1.dp, scheme.primary.copy(alpha = 0.5f * strength), RoundedCornerShape(999.dp))
+            .padding(horizontal = 8.dp, vertical = 2.dp)) {
+        Text(tier?.label ?: "未评级",
+            color = if (tier == null) entropy.onScrim.copy(alpha = 0.55f) else scheme.primary,
+            fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+    }
+}
+
 /**
  * 榜上一行。
  *
  * 名字那一栏吃剩余宽度并省略号收尾：型号串的长度不受我们控制（厂商会在里面夹前缀），
  * 让它换行会把整张榜拉成一列高低不齐的垛子，读不动。
+ *
+ * 名次(16) + 条(22) + 分数(14) 加上四处间距就要 77dp，右面板的卡片内宽只有 74dp：
+ * 横排时型号名会被挤成 0 宽，整张榜变成一列数字。窄的时候型号名单独占一行，
+ * 名次和分数用「第 N」「N 分」写在下面，那条 22dp 的小进度条省掉 —— 分数本身就是数，
+ * 上面「五档分布」那张卡已经给了同一支条。
  */
 @Composable
 private fun RankLine(row: RankRow) {
@@ -1075,27 +1141,77 @@ private fun RankLine(row: RankRow) {
     val scheme = MaterialTheme.colorScheme
     val on = row.mine
     val fg = if (on) scheme.primary else entropy.onScrim.copy(alpha = 0.72f)
-    Row(
+    BoxWithConstraints(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(6.dp))
             .background(if (on) scheme.primary.copy(alpha = 0.14f) else Color.Transparent)
-            .padding(horizontal = 5.dp, vertical = 2.dp),
-        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)
+            .padding(horizontal = 5.dp, vertical = 2.dp)
     ) {
-        Text("${row.rank}", color = if (on) fg else entropy.onScrim.copy(alpha = 0.4f),
-            fontSize = 8.sp, maxLines = 1, modifier = Modifier.width(16.dp), textAlign = TextAlign.End)
-        Text(row.chip.name, color = fg, fontSize = 9.sp, maxLines = 1, softWrap = false,
-            overflow = TextOverflow.Ellipsis, fontWeight = if (on) FontWeight.Bold else FontWeight.Normal,
-            modifier = Modifier.weight(1f))
-        Box(Modifier.width(22.dp).height(3.dp).clip(CircleShape)
-                .background(entropy.onScrim.copy(alpha = 0.10f))) {
-            Box(Modifier.fillMaxWidth(row.chip.score / 100f).fillMaxHeight().clip(CircleShape)
-                    .background(if (on) scheme.primary else entropy.onScrim.copy(alpha = 0.32f)))
+        val narrow = maxWidth < 130.dp
+        if (!narrow) {
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)
+            ) {
+                RankNo(row, on, fg)
+                Text(row.chip.name, color = fg, fontSize = 9.sp, maxLines = 1, softWrap = false,
+                    overflow = TextOverflow.Ellipsis, fontWeight = if (on) FontWeight.Bold else FontWeight.Normal,
+                    modifier = Modifier.weight(1f))
+                ScoreBar(row, on)
+                RankScore(row, on, fg)
+                MineTag(row, on)
+            }
+        } else {
+            Column {
+                Text(row.chip.name, color = fg, fontSize = 9.sp, maxLines = 1, softWrap = false,
+                    overflow = TextOverflow.Ellipsis,
+                    fontWeight = if (on) FontWeight.Bold else FontWeight.Normal,
+                    modifier = Modifier.fillMaxWidth())
+                Spacer(Modifier.height(2.dp))
+                Row(verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                    Text("第 ${row.rank}", color = if (on) fg else entropy.onScrim.copy(alpha = 0.4f),
+                        fontSize = 8.sp, maxLines = 1, softWrap = false)
+                    Text("${row.chip.score} 分", color = if (on) fg else entropy.onScrim.copy(alpha = 0.4f),
+                        fontSize = 8.sp, maxLines = 1, softWrap = false)
+                    Spacer(Modifier.weight(1f))
+                    MineTag(row, on, short = true)
+                }
+            }
         }
-        Text("${row.chip.score}", color = if (on) fg else entropy.onScrim.copy(alpha = 0.4f),
-            fontSize = 8.sp, maxLines = 1, modifier = Modifier.width(14.dp), textAlign = TextAlign.End)
-        if (on) Text(if (row.estimated) "本机·估算" else "本机", color = scheme.primary, fontSize = 7.sp,
-            maxLines = 1, modifier = Modifier.clip(RoundedCornerShape(999.dp))
-                .background(scheme.primary.copy(alpha = 0.18f))
-                .padding(horizontal = 4.dp, vertical = 1.dp))
     }
+}
+
+@Composable
+private fun RankNo(row: RankRow, on: Boolean, fg: Color) {
+    Text("${row.rank}", color = if (on) fg else LocalEntropyColors.current.onScrim.copy(alpha = 0.4f),
+        fontSize = 8.sp, maxLines = 1, modifier = Modifier.width(16.dp), textAlign = TextAlign.End)
+}
+
+@Composable
+private fun RankScore(row: RankRow, on: Boolean, fg: Color) {
+    Text("${row.chip.score}", color = if (on) fg else LocalEntropyColors.current.onScrim.copy(alpha = 0.4f),
+        fontSize = 8.sp, maxLines = 1, modifier = Modifier.width(14.dp), textAlign = TextAlign.End)
+}
+
+@Composable
+private fun ScoreBar(row: RankRow, on: Boolean) {
+    val entropy = LocalEntropyColors.current
+    val scheme = MaterialTheme.colorScheme
+    Box(Modifier.width(22.dp).height(3.dp).clip(CircleShape)
+            .background(entropy.onScrim.copy(alpha = 0.10f))) {
+        Box(Modifier.fillMaxWidth(row.chip.score / 100f).fillMaxHeight().clip(CircleShape)
+                .background(if (on) scheme.primary else entropy.onScrim.copy(alpha = 0.32f)))
+    }
+}
+
+/** 本机标记。窄面板里「本机·估算」要 43dp，会把同一行的名次和分数挤没，所以只留一个词 */
+@Composable
+private fun MineTag(row: RankRow, on: Boolean, short: Boolean = false) {
+    if (!on) return
+    val scheme = MaterialTheme.colorScheme
+    val text = if (row.estimated) if (short) "估算" else "本机·估算" else "本机"
+    Text(text, color = scheme.primary, fontSize = 7.sp,
+        maxLines = 1, modifier = Modifier.clip(RoundedCornerShape(999.dp))
+            .background(scheme.primary.copy(alpha = 0.18f))
+            .padding(horizontal = 4.dp, vertical = 1.dp))
 }

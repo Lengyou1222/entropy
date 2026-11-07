@@ -704,7 +704,9 @@ fun AppPickerDialog(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(name, style = MaterialTheme.typography.bodyMedium,
-                                modifier = Modifier.weight(1f), maxLines = 1)
+                                modifier = Modifier.weight(1f), maxLines = 1,
+                                softWrap = false, overflow = TextOverflow.Ellipsis)
+                            Spacer(Modifier.width(8.dp))
                             if (pkg == current) Text("当前",
                                 style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.primary)

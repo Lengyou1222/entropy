@@ -72,6 +72,8 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -201,16 +203,23 @@ private fun LevelSelector(current: PermLevel, viewed: PermLevel, onSelect: (Perm
         Text("选一档看它解锁什么、还差什么。灰掉的功能是这一档真的改不动，不是界面没做。",
             style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant)
         Spacer(Modifier.height(10.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            PermLevel.entries.forEach { l ->
-                LevelCard(
-                    level = l,
-                    isCurrent = current == l,
-                    reached = current.rank >= l.rank,
-                    selected = viewed == l,
-                    modifier = Modifier.weight(1f),
-                    onClick = { onSelect(l) }
-                )
+        // 四张卡一行放：每张只有 76dp，去掉内边距剩 52dp，而"Shizuku / ADB"这种
+        // 拉丁字母加斜杠的标签要 84dp —— 标签和说明全被切在半句上。改成两列一行，
+        // 一张卡 160dp，标签一行放得下，caption 也不用挤成三行
+        PermLevel.entries.chunked(2).forEachIndexed { i, row ->
+            if (i > 0) Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                row.forEach { l ->
+                    LevelCard(
+                        level = l,
+                        isCurrent = current == l,
+                        reached = current.rank >= l.rank,
+                        selected = viewed == l,
+                        modifier = Modifier.weight(1f),
+                        onClick = { onSelect(l) }
+                    )
+                }
+                if (row.size == 1) Spacer(Modifier.weight(1f))
             }
         }
     }
@@ -256,7 +265,8 @@ private fun LevelCard(
                 )
                 Spacer(Modifier.width(6.dp))
                 Text(level.label, style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold, maxLines = 1,
+                    maxLines = 2, lineHeight = 17.sp,
+                    fontWeight = FontWeight.Bold,
                     modifier = Modifier.weight(1f).alpha(fg))
             }
             Spacer(Modifier.height(4.dp))
@@ -309,7 +319,7 @@ private fun LevelDetail(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("${target.label} · 多解锁 $unlocked 项",
                         style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold,
-                        maxLines = 1, modifier = Modifier.weight(1f))
+                        maxLines = 2, lineHeight = 21.sp, modifier = Modifier.weight(1f))
                     StatusPill(if (reached) "已达到" else "未达到",
                         reached, if (reached) entropy.tempCool else entropy.warn)
                 }
@@ -427,11 +437,17 @@ private fun FactRow(key: String, value: String, ok: Boolean) {
         Box(Modifier.size(7.dp).clip(CircleShape)
             .background(if (ok) entropy.tempCool else scheme.onSurfaceVariant.copy(alpha = 0.45f)))
         Spacer(Modifier.width(9.dp))
+        // 两边都得带权重：只给 key 加权、value 裸着，Row 会先按整行宽度量 value，
+        // 于是"已安装 Zygote Next · 未运行：先在 Shizuku 里启动它"这一句把宽度吃干，
+        // key 那一列量到 0dp，左边"Root / su""命令执行身份"这些名字整行凭空消失。
         Text(key, style = MaterialTheme.typography.bodySmall,
-            color = scheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+            color = scheme.onSurfaceVariant, modifier = Modifier.weight(1f, fill = false),
+            maxLines = 2, overflow = TextOverflow.Ellipsis)
         Text(value, style = MaterialTheme.typography.bodySmall,
             color = if (ok) scheme.onSurface else scheme.onSurfaceVariant,
-            fontWeight = if (ok) FontWeight.Medium else FontWeight.Normal, maxLines = 2)
+            fontWeight = if (ok) FontWeight.Medium else FontWeight.Normal,
+            modifier = Modifier.weight(1.8f, fill = false),
+            textAlign = TextAlign.End, maxLines = 3, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -496,7 +512,7 @@ private fun FeatureRow(f: Feature, unlocked: Boolean) {
                 maxLines = 1)
             Text(if (unlocked) f.why else "${f.min.label}才改得动：${f.why}",
                 style = MaterialTheme.typography.bodySmall, fontSize = 11.sp,
-                color = scheme.onSurfaceVariant, maxLines = 2)
+                lineHeight = 15.sp, color = scheme.onSurfaceVariant)
         }
         Spacer(Modifier.width(8.dp))
         Text(
@@ -565,7 +581,7 @@ private fun ListRow(
             Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium,
                 maxLines = 1)
             Text(subtitle, style = MaterialTheme.typography.bodySmall,
-                color = scheme.onSurfaceVariant, fontSize = 12.sp, maxLines = 2)
+                lineHeight = 16.sp, color = scheme.onSurfaceVariant, fontSize = 12.sp)
         }
         Spacer(Modifier.width(10.dp))
         Text(status, style = MaterialTheme.typography.labelMedium,

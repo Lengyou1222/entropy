@@ -44,6 +44,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.entropy.data.EntropyStore
 import com.entropy.data.Feature
@@ -513,9 +514,11 @@ private fun GameRow(
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(name, style = MaterialTheme.typography.bodyMedium,
                 fontWeight = if (isForeground) FontWeight.Bold else FontWeight.Normal,
-                modifier = Modifier.weight(1f), maxLines = 1)
+                modifier = Modifier.weight(1f, fill = false), maxLines = 1,
+                softWrap = false, overflow = TextOverflow.Ellipsis)
+            Spacer(Modifier.width(8.dp))
             Text(if (installed) note else "本机未安装",
-                style = MaterialTheme.typography.labelSmall,
+                style = MaterialTheme.typography.labelSmall, maxLines = 1,
                 color = if (installed) scheme.onSurfaceVariant else scheme.error)
         }
         Text(

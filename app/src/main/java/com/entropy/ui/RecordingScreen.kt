@@ -41,6 +41,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.entropy.data.EntropyStore
 import com.entropy.data.UiState
@@ -125,7 +126,8 @@ fun RecordingScreen(store: EntropyStore, state: UiState) {
                 Row(Modifier.fillMaxWidth().padding(vertical = 3.dp),
                     verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
-                        Text(f.name, style = MaterialTheme.typography.bodySmall, maxLines = 1)
+                        Text(f.name, style = MaterialTheme.typography.bodySmall, maxLines = 1,
+                            softWrap = false, overflow = TextOverflow.Ellipsis)
                         Text("${DATE.format(Date(f.lastModified()))} · " +
                             String.format(Locale.US, "%.1f MB", f.length() / 1024.0 / 1024.0),
                             style = MaterialTheme.typography.labelSmall,

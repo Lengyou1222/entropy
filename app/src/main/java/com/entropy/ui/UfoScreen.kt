@@ -22,6 +22,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -33,6 +35,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -252,7 +255,14 @@ fun UfoTestDialog(store: EntropyStore, onClose: () -> Unit) {
     }
 }
 
-/** 顶部读数：大字实测值 + 逐帧间隔柱 + 结论 */
+/**
+ * 顶部读数：大字实测值 + 逐帧间隔柱 + 结论。
+ *
+ * 拆成两行是因为竖屏放不下：上一版四块都不伸缩（读数 130 + 柱子 126 + 结论句 231 +
+ * "展开参数" 80，再加三份 16dp 间距 = 615dp），360dp 屏上只有 296dp 可用，
+ * 于是结论句被压成几个字、"展开参数"整块掉到窗口外面 —— 这就是"文本显示不全"最典型的一处。
+ * 现在第一行的柱子吃 weight，第二行的结论句吃整幅宽度并允许两行。
+ */
 @Composable
 private fun ReadoutBar(
     modifier: Modifier,
@@ -268,43 +278,50 @@ private fun ReadoutBar(
     onToggleParams: () -> Unit,
 ) {
     val verdict = verdictOf(stats, nominalHz, cool, warm, hot)
-    Row(
-        modifier.glass(accent).padding(start = 18.dp, end = 10.dp, top = 12.dp, bottom = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(16.dp),
+    val detail = if (nominalHz <= 0f) "系统当前档位未取到"
+    else "当前档位 %.0f Hz · 中位 %.1f Hz（%+.1f%%）".format(
+        nominalHz, stats.hzMedian, (stats.hzMedian / nominalHz - 1f) * 100f)
+    Column(
+        modifier.glass(accent).padding(start = 16.dp, end = 12.dp, top = 10.dp, bottom = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Column {
-            Text("实测出帧", style = MaterialTheme.typography.labelSmall, color = Lo)
-            Row(verticalAlignment = Alignment.Bottom) {
-                Text(
-                    if (stats.samples == 0) "--" else "%.1f".format(stats.hzMean),
-                    style = MaterialTheme.typography.displaySmall,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Bold, color = Hi,
-                )
-                Spacer(Modifier.width(4.dp))
-                Text("Hz", style = MaterialTheme.typography.titleMedium, color = Mid,
-                    modifier = Modifier.padding(bottom = 5.dp))
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Column {
+                Text("实测出帧", style = MaterialTheme.typography.labelSmall, color = Lo)
+                Row(verticalAlignment = Alignment.Bottom) {
+                    Text(
+                        if (stats.samples == 0) "--" else "%.1f".format(stats.hzMean),
+                        style = MaterialTheme.typography.displaySmall,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold, color = Hi,
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text("Hz", style = MaterialTheme.typography.titleMedium, color = Mid,
+                        modifier = Modifier.padding(bottom = 5.dp))
+                }
             }
-        }
-        IntervalBars(trace, nominalHz, Modifier.width(126.dp).height(44.dp))
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Badge(verdict.text, verdict.color)
+            // weight 而不是 126dp 定宽：竖屏只剩多少就给多少，横屏自然摊开
+            IntervalBars(trace, nominalHz, Modifier.weight(1f).height(44.dp))
             Text(
-                if (nominalHz <= 0f) "系统当前档位未取到"
-                else "当前档位 %.0f Hz · 中位 %.1f Hz（%+.1f%%）".format(
-                    nominalHz, stats.hzMedian, (stats.hzMedian / nominalHz - 1f) * 100f),
-                style = MaterialTheme.typography.bodySmall, color = Mid,
+                if (showParams) "收起参数" else "展开参数",
+                style = MaterialTheme.typography.labelLarge, color = accent,
+                maxLines = 1, softWrap = false,
+                modifier = Modifier.clickable(onClick = onToggleParams)
+                    .padding(horizontal = 4.dp, vertical = 8.dp),
             )
         }
-        Spacer(Modifier.weight(1f))
-        if (paused) Badge("已暂停", warm)
-        Text(
-            if (showParams) "收起参数" else "展开参数",
-            style = MaterialTheme.typography.labelLarge, color = accent,
-            modifier = Modifier.clickable(onClick = onToggleParams)
-                .padding(horizontal = 12.dp, vertical = 8.dp),
-        )
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Badge(verdict.text, verdict.color)
+            Text(detail, style = MaterialTheme.typography.bodySmall, color = Mid,
+                maxLines = 2, modifier = Modifier.weight(1f))
+            if (paused) Badge("已暂停", warm)
+        }
     }
 }
 
@@ -360,12 +377,15 @@ private fun ParamPanel(
     val cfg = LocalConfiguration.current
     val dpi = cfg.densityDpi
     Column(
+        // 宽度给"屏宽九成、上限 300dp"而不是写死 278dp：竖屏 360dp 上 278 定宽会把
+        // 左边只剩 64dp，横屏上又嫌窄。同一份排版在两种宽度里都不用重排
         Modifier
             .fillMaxHeight()
             .padding(end = 18.dp, bottom = 10.dp)
-            .width(278.dp)
+            .widthIn(max = 300.dp)
+            .fillMaxWidth(0.9f)
             .glass(accent)
-            .padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 14.dp)
+            .padding(start = 14.dp, end = 14.dp, top = 14.dp, bottom = 14.dp)
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
@@ -428,7 +448,16 @@ private fun ParamPanel(
     }
 }
 
-/** 底部控制条：速度太慢时 60Hz 与 120Hz 看不出差别，所以要能加速 */
+/**
+ * 底部控制条：速度太慢时 60Hz 与 120Hz 看不出差别，所以要能加速。
+ *
+ * 这一条排过两次队，都是"显示不全"逼的：最早按内容撑到 428dp，竖屏只有 324dp，
+ * "重置"和"关闭"整颗掉到屏幕外，测完想关掉只能按返回键；改成六格一律 weight 之后，
+ * 每格只有 49dp，而"12.5 px/f"那一格连内边距要 76dp，数字被切在半字符上。
+ * 现在用 FlowRow：每格按自己的内容量宽，一行装不下就掉到第二行居中。
+ * 这页是全屏测试台，多一行控件不碍事，字被裁才碍事。
+ */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ControlBar(
     accent: Color,
@@ -441,19 +470,19 @@ private fun ControlBar(
     onReset: () -> Unit,
     onClose: () -> Unit,
 ) {
-    Row(
-        Modifier.fillMaxWidth().navigationBarsPadding()
-            .padding(horizontal = 18.dp, vertical = 16.dp),
-        horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
-        verticalAlignment = Alignment.CenterVertically,
+    FlowRow(
+        modifier = Modifier.fillMaxWidth().navigationBarsPadding()
+            .padding(horizontal = 14.dp, vertical = 14.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Pill("减速", accent, onSlower)
-        Box(
-            Modifier.glass(accent).padding(horizontal = 14.dp, vertical = 10.dp),
+        Box(Modifier.glass(accent).padding(horizontal = 8.dp, vertical = 10.dp),
             contentAlignment = Alignment.Center,
         ) {
             Text("%.0f px/f".format(speed), color = Hi,
-                style = MaterialTheme.typography.labelLarge, fontFamily = FontFamily.Monospace)
+                style = MaterialTheme.typography.labelLarge, fontFamily = FontFamily.Monospace,
+                maxLines = 1, softWrap = false)
         }
         Pill("加速", accent, onFaster)
         Pill(if (paused) "继续" else "暂停", accent, onPause)
@@ -466,9 +495,10 @@ private fun ControlBar(
 private fun Pill(text: String, accent: Color, onClick: () -> Unit) {
     Text(
         text, color = accent, style = MaterialTheme.typography.labelLarge,
-        fontWeight = FontWeight.Medium,
+        fontWeight = FontWeight.Medium, textAlign = TextAlign.Center,
+        maxLines = 1, softWrap = false,
         modifier = Modifier.glass(accent).clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 10.dp),
+            .padding(horizontal = 10.dp, vertical = 10.dp),
     )
 }
 
@@ -484,11 +514,18 @@ private fun GroupTitle(text: String, accent: Color) {
     }
 }
 
+/**
+ * 一行键值。
+ *
+ * 值的权重给到 1.5：档位表（"30/40/48/50/60/90/120/144"）与"360×800 dp · 480 dpi"
+ * 这类等宽串最长，而键永远是两三个汉字。两份都 fill=false，所以谁用不完那一档
+ * 就把余量让给对方，而不是各自守着一条算出来的死宽度被省略号切掉。
+ */
 @Composable
 private fun Kv(key: String, value: String, color: Color = Hi) {
     Row(
         Modifier.fillMaxWidth().padding(vertical = 2.dp),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.Top,
     ) {
         Text(key, style = MaterialTheme.typography.bodySmall, color = Lo,
@@ -496,9 +533,9 @@ private fun Kv(key: String, value: String, color: Color = Hi) {
             maxLines = 2, overflow = TextOverflow.Ellipsis)
         Text(value, style = MaterialTheme.typography.bodySmall,
             fontFamily = FontFamily.Monospace, color = color,
-            modifier = Modifier.weight(1.05f, fill = false),
+            modifier = Modifier.weight(1.5f, fill = false),
             textAlign = TextAlign.End,
-            maxLines = 2, overflow = TextOverflow.Ellipsis)
+            maxLines = 3, overflow = TextOverflow.Ellipsis)
     }
 }
 

@@ -25,6 +25,10 @@
 // 读不到温度给中性灰而不是冷色 —— "绿"会被读成"温度正常"，而真相是"没读到"。
 // 熔断是另一条独立事实，用状态词和一行说明表达，不把整块染红：
 // 本机实测 36.0℃（正常）叠上历史熔断状态时，整块红会被读成"手机过热了"。
+//
+// 4) 底板固定深、字固定浅，两者都不跟配色方案走（理由见下方 IslandInk 的注释）。
+//    浅色主题把 onScrim 给成深墨、把 tempCool 给成 0x0F766E 那种沉色，
+//    这两样压在同一块黑底上就是"岛上的字整个看不见"，而这块东西的全部价值就是那几个字。
 package com.entropy.overlay
 
 import androidx.compose.animation.AnimatedContent
@@ -64,6 +68,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
@@ -80,6 +86,23 @@ import com.entropy.ui.theme.EntropyColors
 import com.entropy.ui.theme.EntropyTheme
 import com.entropy.ui.theme.LocalEntropyColors
 import com.entropy.ui.theme.tempColor
+
+/**
+ * 岛上的字。底板一直是那一枚接近纯黑的暗底（见 island()），所以字色也只能是固定的浅色：
+ * entropy.onScrim 跟着配色方案走，浅色主题下它是一枚深墨，压在黑底上就是"字不见了"。
+ * 浮窗里的其它块（面板、小球卡片）可以跟主题，因为它们连底板一起跟；岛不能。
+ */
+private val IslandInk = Color(0xFFEDEAF2)
+
+/** 暗底上可用的中性灰：无读数那一档的结论词 */
+private val IslandMuted = Color(0xFF8A8A93)
+
+/**
+ * 把主题色提到暗底上读得清的那一档明度。
+ * 只照明度，不改色相 —— 冷青还是冷青、橙还是橙，温度梯度的语义全在色相上。
+ */
+private fun onIsland(c: Color): Color =
+    if (c.luminance() < 0.42f) lerp(c, Color.White, 0.55f) else c
 
 /**
  * 灵动岛能对自己的窗口做的事。
@@ -128,7 +151,7 @@ private fun Verdict.urgent() = word == "危险" || word == "熔断"
  */
 fun verdictOf(r: HudReading, entropy: EntropyColors): Verdict = when {
     r.fused -> Verdict("熔断", entropy.warn, "调度已全量还原，120 秒后自动解锁")
-    r.tempC == null -> Verdict("无读数", Color(0xFF8A8A93), r.tempSource)
+    r.tempC == null -> Verdict("无读数", IslandMuted, r.tempSource)
     r.alerting || r.tempC >= r.alertAtC ->
         Verdict("危险", entropy.warn, "%.1f℃ 已达提醒线 %.0f℃".format(r.tempC, r.alertAtC))
     r.thermalStatus >= 3 ->
@@ -160,10 +183,11 @@ fun SafeHud(
         val entropy = LocalEntropyColors.current
         val v = verdictOf(reading, entropy)
         // 有温度时颜色沿 tempColor 连续走（安全->偏热本来就是渐变），
-        // 无读数与熔断这两件事不是温度，用结论色顶替
+        // 无读数与熔断这两件事不是温度，用结论色顶替。
+        // 两条都要过 onIsland：浅色主题给的是给白底调的那一档明度，黑底上会沉下去
         val tint by animateColorAsState(
-            targetValue = reading.tempC?.takeIf { !reading.fused }
-                ?.let { tempColor(entropy, it) } ?: v.tone,
+            targetValue = onIsland(reading.tempC?.takeIf { !reading.fused }
+                ?.let { tempColor(entropy, it) } ?: v.tone),
             animationSpec = tween(500), label = "islandTint")
 
         // 这里不再加状态栏 padding：窗口本身的 y 就已经压在状态栏/刘海下方，
@@ -195,19 +219,17 @@ fun SafeHud(
     }
 }
 
+/** 岛的底板色：固定一枚近黑，不跟配色方案的浅色 surface。理由见 IslandInk 的注释 */
+private val IslandFill = Color(0xF4080A10)
+
 /** 岛的底板：内容量到多大就画多大，所以窗口即触摸区，不会在系统栏里留一块点不透的死边 */
 @Composable
 private fun Modifier.island(tint: Color, urgent: Boolean, expanded: Boolean): Modifier {
-    val entropy = LocalEntropyColors.current
     val edge by animateColorAsState(
         targetValue = tint.copy(alpha = if (urgent) 0.95f else 0.5f),
         animationSpec = tween(450), label = "islandEdge")
-    val fill by animateColorAsState(
-        // 0xF2 而不是 0xE6：岛压在浅色游戏画面上时，90% 的黑底已经把结论词冲淡到读不清，
-        // 而这块东西的全部价值就是那几个字
-        targetValue = if (urgent) entropy.overlayScrim.copy(alpha = 0.97f)
-                      else Color(0xF207070C),
-        animationSpec = tween(450), label = "islandFill")
+    // 底板不再跟着告警换色：上一版告警时换成 entropy.overlayScrim，而浅色主题那块底板
+    // 是近白的，于是"危险"那一档字反而最看不清。告警只由描边亮度与那颗点表达
     // 收起态是整圆胶囊（用百分比而不是 999dp：窗口高度随分辨率变，
     // 固定 dp 半径在高分辨率上会变成"圆角矩形"而不是胶囊）
     // 展开态反过来，必须钉死成 dp：现在这张卡片是量内容出来的，
@@ -216,7 +238,7 @@ private fun Modifier.island(tint: Color, urgent: Boolean, expanded: Boolean): Mo
     val shape = if (expanded) RoundedCornerShape(20.dp) else RoundedCornerShape(percent = 50)
     return this
         .clip(shape)
-        .background(fill)
+        .background(IslandFill)
         .border(1.dp, edge, shape)
 }
 
@@ -254,7 +276,6 @@ private fun Compact(
     r: HudReading,
     items: List<HudItem>,
 ) {
-    val entropy = LocalEntropyColors.current
     val pulse by animateFloatAsState(
         targetValue = if (v.urgent()) 1f else 0.45f,
         animationSpec = tween(420), label = "compactEdge")
@@ -277,7 +298,7 @@ private fun Compact(
         // tnum 是等宽数字 —— 1Hz 刷新的读数里只有数字在换，等宽之后同一个位数不会
         // 因为 6 换成 1 就窄两像素，岛不会跟着呼吸
         Text(
-            readout, color = entropy.onScrim.copy(alpha = 0.62f), fontSize = 9.sp,
+            readout, color = IslandInk.copy(alpha = 0.78f), fontSize = 9.sp,
             maxLines = 1, overflow = TextOverflow.Ellipsis,
             style = TextStyle(fontFeatureSettings = "tnum")
         )
@@ -309,7 +330,7 @@ private fun Detail(
     capW: Dp,
     capH: Dp,
 ) {
-    val on = LocalEntropyColors.current.onScrim
+    val on = IslandInk
     // 底板、点击区、内容框是同一块：底板跟着内容收，点哪儿都算点在岛上
     Box(
         Modifier.island(tint, v.urgent(), true)
@@ -329,7 +350,7 @@ private fun Detail(
                 Text(v.word, color = tint, fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1)
                 Spacer(Modifier.width(6.dp))
                 // 依据紧跟结论词：这一行回答"凭什么说安全"，不需要用户再往下找
-                Text(v.detail, color = on.copy(alpha = 0.55f), fontSize = 9.sp,
+                Text(v.detail, color = on.copy(alpha = 0.72f), fontSize = 9.sp,
                     maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             val tiles = items.filter { it != HudItem.ZONES }
@@ -354,7 +375,7 @@ private fun Detail(
             }
             // 热区明细只在勾选时出现：它天然是长句，挤在卡片下面而不是占一格
             if (HudItem.ZONES in items) HudItem.ZONES.readout(reading)?.let {
-                Text("热区 $it", color = on.copy(alpha = 0.5f),
+                Text("热区 $it", color = on.copy(alpha = 0.7f),
                     fontSize = 8.sp, lineHeight = 11.sp, maxLines = 2,
                     modifier = Modifier.widthIn(max = (capW - 26.dp).coerceAtMost(230.dp)))
             }
@@ -364,11 +385,11 @@ private fun Detail(
                 if (HudItem.HEADROOM in items || HudItem.BATTERY in items)
                     add("提醒线 %.1f℃".format(reading.alertAtC))
             }
-            if (notes.isNotEmpty()) Text(notes.joinToString(" · "), color = on.copy(alpha = 0.42f),
+            if (notes.isNotEmpty()) Text(notes.joinToString(" · "), color = on.copy(alpha = 0.6f),
                 fontSize = 8.sp, lineHeight = 11.sp, maxLines = 3,
                 modifier = Modifier.widthIn(max = (capW - 26.dp).coerceAtMost(230.dp)))
             Text("点一下收起 · 长按关闭",
-                color = on.copy(alpha = 0.3f), fontSize = 8.sp, maxLines = 1, lineHeight = 10.sp)
+                color = on.copy(alpha = 0.48f), fontSize = 8.sp, maxLines = 1, lineHeight = 10.sp)
         }
     }
 }
@@ -383,7 +404,7 @@ private val TileW = 84.dp
  */
 @Composable
 private fun Tile(label: String, value: String, color: Color) {
-    val on = LocalEntropyColors.current.onScrim
+    val on = IslandInk
     Column(
         Modifier.widthIn(min = TileW)
             .clip(RoundedCornerShape(10.dp))
@@ -391,8 +412,10 @@ private fun Tile(label: String, value: String, color: Color) {
             .padding(horizontal = 9.dp, vertical = 6.dp)
     ) {
         Text(value, color = color, fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1,
+            softWrap = false, overflow = TextOverflow.Ellipsis,
             style = TextStyle(fontFeatureSettings = "tnum"))
-        Text(label, color = on.copy(alpha = 0.45f), fontSize = 8.sp, maxLines = 1)
+        Text(label, color = on.copy(alpha = 0.68f), fontSize = 8.sp, maxLines = 1,
+            softWrap = false, overflow = TextOverflow.Ellipsis)
     }
 }
 

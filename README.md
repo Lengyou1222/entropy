@@ -71,51 +71,10 @@ bash scripts/build-apk.sh           # 一条命令出 release + debug APK 到 di
 ```bash
 bash scripts/build-ebpf.sh          # eBPF 调度程序
 bash scripts/build-magisk.sh        # 打包 Magisk 模块
-bash scripts/bump-version.sh minor  # 版本号 +0.01（见下）
+bash scripts/bump-version.sh minor  # 版本号进位
 ```
 
 要求：JDK 17、Android SDK 35、NDK（`build-daemon.sh` 用 clang 直接编，不依赖 CMake 路径）、Gradle 8.13（wrapper 已带）。
-
----
-
-## 版本号方案
-
-`versionName` 是三段式 `a.b.c`，递进规则：
-
-| 更新类型 | 命令 | 变化 | 例 |
-| --- | --- | --- | --- |
-| 小更新 | `bump-version.sh minor` | `+0.01` | `1.0.9` 进位成 `1.1.0` |
-| 中等更新 | `bump-version.sh medium` | `+0.1` | `1.9.x` 进位成 `2.0.0` |
-| 大更新 | `bump-version.sh major` | `+1.0` | `1.x.x` 变 `2.0.0` |
-
-`versionCode` 由版本名算出：`a*10000 + b*100 + c`（`1.1.0` → `10100`）。
-这样两个数永远同源，不会出现"版本名涨了、versionCode 没涨，覆盖安装被系统拒"的错配。
-
-脚本只改 `app/build.gradle.kts` 里 `versionCode` / `versionName` 两行，其余字节不动，
-所以 `git diff` 里看到的就是这次改动本身。
-
----
-
-## 应用内检查更新
-
-每次冷启动查一次 GitHub `releases/latest`，发现新版本就弹窗：**下载更新**或**继续使用当前版本**。
-选继续以后这一版不再重复打扰；改主意了去 设置（我的页右上角齿轮）→ 检查更新，那里能手动查、看上次结果、
-下载与安装。
-
-几个刻意的取舍：
-
-- **不带任何凭据。** 公开仓库的 `releases/latest` 匿名可读，应用里没有 token、没有账号，也就没有可以泄的东西。
-- **不轮询。** 匿名限流 60 次/小时每 IP，所以只有启动那一次和你在设置页手动点的那一次会发请求。
-- **失败要说清楚。** 断网、被限流、仓库还没发过 Release、Release 里没有 APK 资产——这四种是不同的事，
-  提示就写四种不同的话，不合并成一句"检查失败"。启动自动查的失败只在设置页记一笔，不弹窗拦路。
-- **装不装由系统说了算。** 包下完落在应用私有目录，经 `FileProvider` 换成 `content://` 交给系统的安装确认页。
-  没有"安装未知应用"放行时，熵把你送到那一页，回来再试一次——它不会替你点确认。
-
-想指到别的仓库（fork、测试仓库）实测这条链路，不改源码：
-
-```bash
-bash scripts/build-apk.sh -Pentropy.updateRepo=your-name/your-repo
-```
 
 ---
 

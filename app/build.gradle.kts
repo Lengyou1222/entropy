@@ -19,8 +19,8 @@ android {
         // 我们真正依赖的能力在 24 之后才有稳定语义。
         minSdk = 24
         targetSdk = 35
-        versionCode = 10400
-        versionName = "1.4.0"
+        versionCode = 10401
+        versionName = "1.4.1"
 
         // 更新通道：GitHub 上"哪个仓库的 Releases"算官方源。
         // 公开仓库的 releases/latest 匿名可读，所以应用里不需要带任何 token。

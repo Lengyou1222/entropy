@@ -465,7 +465,9 @@ class SafeHudService : LifecycleService(), SavedStateRegistryOwner, HudWindow {
      */
     private fun maxContentW(): Int {
         val free = screenW() - store.panelInsetPx.value - store.sideInsetPx.value
-        val floorDp = if (expandedState.value) EXPANDED_FLOOR_DP else 140f
+        // 收起态的下限从 140dp 提到 168dp：那条胶囊要装"结论词 + 勾出来的几项读数"，
+        // 三项起步就在 150dp 开外，卡在 140 上等于让岛自己把用户勾出来的数省略成三个点
+        val floorDp = if (expandedState.value) EXPANDED_FLOOR_DP else 168f
         return (free - dp(16f)).coerceAtLeast(dp(floorDp)).toInt()
     }
 

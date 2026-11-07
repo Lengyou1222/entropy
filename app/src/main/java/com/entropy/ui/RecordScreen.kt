@@ -45,6 +45,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.entropy.data.EntropyStore
 import com.entropy.data.Feature
@@ -155,7 +156,9 @@ fun RecordScreen(store: EntropyStore, state: UiState) {
                 "选定一个游戏之后，帧率列记的就是这个应用的出帧差分。" +
                     "它和安全显示灵动岛是同一个目标，改哪边另一边都跟着变。") {
                 OutlinedButton(onClick = { pickerOpen = true }, modifier = Modifier.fillMaxWidth()) {
-                    Text("目标：${targetLabel.ifEmpty { "未指定（只信帧率探针）" }}", maxLines = 1)
+                    Text("目标：${targetLabel.ifEmpty { "未指定（只信帧率探针）" }}", maxLines = 1,
+                        softWrap = false, overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false))
                 }
                 Spacer(Modifier.height(8.dp))
                 Text(
