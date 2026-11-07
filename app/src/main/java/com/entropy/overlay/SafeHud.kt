@@ -16,7 +16,8 @@
 // 3) 尺寸由内容决定，服务只给上界（capWidthPx / capHeightPx），上界再按内容收。
 //    窗口是 WRAP_CONTENT，所以本文件里不许再出现 fillMax*：铺满一条宽度无限的窗口
 //    要么量成 0x0，要么把岛直接撑到上界 —— 两种都不是"装多少内容占多大地方"。
-//    于是收起态那条胶囊只跟两样东西走：结论词多长、勾了几项读数；
+//    收起态那条胶囊只跟两样东西走：结论词多长、勾了几项读数 —— 再加一个宽度上限，
+//    勾满六项时才不会拉成占掉半块屏幕的横幅，排不下的那几项由省略号收掉；
 //    展开态跟两样走：可用宽度排得出几列（不是写死两列）、几列就有几行。
 //    宽度不够降列，高度不够就滚 —— 被裁掉或被藏掉的都会是用户自己勾出来的读数。
 //    窗口即触摸区，岛外面不会留点不动的死边。
@@ -32,6 +33,8 @@
 package com.entropy.overlay
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.ContentTransform
+import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
@@ -41,7 +44,6 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -201,14 +203,26 @@ fun SafeHud(
                 targetState = win.expanded,
                 transitionSpec = {
                     // 展开用"从小长大"而不是交叉淡入：灵动岛的读感是同一块东西在变形，
-                    // 两帧各画一半会读成两块窗
+                    // 两帧各画一半会读成两块窗。
+                    // sizeTransform 显式关掉 clip：默认的 SizeTransform(clip = true) 会在
+                    // 从 32dp 长到三百多 dp 的那几百毫秒里把容器裁得比内容矮，底下几行字
+                    // 被切成半截 —— 实测抓到的"展开渲染异常"就是这个瞬时状态。
+                    // 展开态本来就有 verticalScroll 与上界兜着，不需要靠裁切防溢出
                     if (targetState)
-                        (scaleIn(initialScale = 0.84f, animationSpec = spring(
-                            dampingRatio = 0.72f, stiffness = Spring.StiffnessMediumLow)) +
-                            fadeIn(tween(160))) togetherWith fadeOut(tween(80))
+                        ContentTransform(
+                            targetContentEnter = scaleIn(initialScale = 0.84f, animationSpec = spring(
+                                dampingRatio = 0.72f, stiffness = Spring.StiffnessMediumLow)) +
+                                fadeIn(tween(160)),
+                            initialContentExit = fadeOut(tween(80)),
+                            sizeTransform = SizeTransform(clip = false)
+                        )
                     else
-                        fadeIn(tween(140)) togetherWith
-                        (scaleOut(targetScale = 0.88f, animationSpec = tween(150)) + fadeOut(tween(110)))
+                        ContentTransform(
+                            targetContentEnter = fadeIn(tween(140)),
+                            initialContentExit = scaleOut(targetScale = 0.88f,
+                                animationSpec = tween(150)) + fadeOut(tween(110)),
+                            sizeTransform = SizeTransform(clip = false)
+                        )
                 },
                 label = "islandBody"
             ) { open ->
@@ -219,8 +233,12 @@ fun SafeHud(
     }
 }
 
-/** 岛的底板色：固定一枚近黑，不跟配色方案的浅色 surface。理由见 IslandInk 的注释 */
-private val IslandFill = Color(0xF4080A10)
+/**
+ * 岛的底板色：一枚不透明的近黑，不跟配色方案的浅色 surface（理由见 IslandInk 的注释）。
+ * 之前留了 0xF4 的透明度，结果浅色主题下底下 App 的大号标题会以十几级灰度的对比度
+ * 浮在岛身上 —— 单独看每个像素都算"正常"，合起来就是那块字是坏的。这块东西只负责被读清。
+ */
+private val IslandFill = Color(0xFF080A10)
 
 /** 岛的底板：内容量到多大就画多大，所以窗口即触摸区，不会在系统栏里留一块点不透的死边 */
 @Composable
@@ -267,6 +285,10 @@ private val CompactItems = HudItem.entries - HudItem.ZONES
  * 以前这里塞的是"36.5℃ · 距提醒线还有 6.5℃"那句依据。依据是展开态的事，
  * 收起态一眼要读的是"安不安全 + 我勾的那几项现在多少"；而且温度被单独勾成
  * 一格时，依据句里同一个数字会重复出现，更该让位。
+ *
+ * 整条胶囊有个宽度上限：勾满六项时这一串有四百多 dp，实测在横屏上会拉成一条
+ * 占掉半块屏幕的横幅，既不像岛也盖住了上面本来就不多的空间。排不下的那几项
+ * 由省略号收掉 —— 省略号是说"还有，展开看"，而不是把勾选项悄悄删掉。
  */
 @Composable
 private fun Compact(
@@ -284,6 +306,7 @@ private fun Compact(
         else picked.joinToString("  ") { "${it.label} ${it.readout(r) ?: "—"}" }
     Row(
         Modifier.island(tint, v.urgent(), false)
+            .widthIn(max = CompactMaxW)
             .height(32.dp)
             .padding(horizontal = 11.dp)
             .pointerInput(Unit) {
@@ -294,16 +317,21 @@ private fun Compact(
     ) {
         Box(Modifier.size(7.dp).background(tint.copy(alpha = pulse), CircleShape))
         Text(v.word, color = tint, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-        // 不给 weight：这一条有多宽由"勾了几项、每项多长"决定，胶囊才跟着窗口一起收。
+        // 剩下的宽度全给这一条，装不下就省略号 —— 不给 weight 的话这条有多长胶囊就有多长，
+        // 上面的上限也就只是个摆设
         // tnum 是等宽数字 —— 1Hz 刷新的读数里只有数字在换，等宽之后同一个位数不会
         // 因为 6 换成 1 就窄两像素，岛不会跟着呼吸
         Text(
-            readout, color = IslandInk.copy(alpha = 0.78f), fontSize = 9.sp,
+            readout, modifier = Modifier.weight(1f, fill = false),
+            color = IslandInk.copy(alpha = 0.78f), fontSize = 9.sp,
             maxLines = 1, overflow = TextOverflow.Ellipsis,
             style = TextStyle(fontFeatureSettings = "tnum")
         )
     }
 }
+
+/** 收起态胶囊的宽度上限：比展开态三列那张卡略窄，抬眼时不会盖住整条状态栏 */
+private val CompactMaxW = 268.dp
 
 /**
  * 展开态：结论常驻在最上一行，下面跟着的就是用户勾出来的那几格读数。
@@ -353,10 +381,14 @@ private fun Detail(
                 Text(v.detail, color = on.copy(alpha = 0.72f), fontSize = 9.sp,
                     maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
+            // 一格最少 84dp（Tile 里的下限），列间距 6dp，整块左右内边距 26dp
+            val cols = (((capW - 26.dp + 6.dp) / (TileW + 6.dp)).toInt()).coerceIn(1, 3)
+            // 一整行的可用宽度。注脚那两行用同一个数收口，右边缘才跟格子对齐：
+            // 上一版写死 230dp，比三列格子（264dp）先折行，卡片右下角空出一块，
+            // 看着像排版没排完
+            val lineW = (TileW * cols + 6.dp * (cols - 1)).coerceAtMost(capW - 26.dp)
             val tiles = items.filter { it != HudItem.ZONES }
             if (tiles.isNotEmpty()) {
-                // 一格最少 84dp（Tile 里的下限），列间距 6dp，整块左右内边距 26dp
-                val cols = (((capW - 26.dp + 6.dp) / (TileW + 6.dp)).toInt()).coerceIn(1, 3)
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     tiles.chunked(cols).forEach { row ->
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -377,7 +409,7 @@ private fun Detail(
             if (HudItem.ZONES in items) HudItem.ZONES.readout(reading)?.let {
                 Text("热区 $it", color = on.copy(alpha = 0.7f),
                     fontSize = 8.sp, lineHeight = 11.sp, maxLines = 2,
-                    modifier = Modifier.widthIn(max = (capW - 26.dp).coerceAtMost(230.dp)))
+                    modifier = Modifier.widthIn(max = lineW))
             }
             val notes = buildList {
                 if (HudItem.TEMP in items || HudItem.ZONES in items) add("温度来源 ${reading.tempSource}")
@@ -387,7 +419,7 @@ private fun Detail(
             }
             if (notes.isNotEmpty()) Text(notes.joinToString(" · "), color = on.copy(alpha = 0.6f),
                 fontSize = 8.sp, lineHeight = 11.sp, maxLines = 3,
-                modifier = Modifier.widthIn(max = (capW - 26.dp).coerceAtMost(230.dp)))
+                modifier = Modifier.widthIn(max = lineW))
             Text("点一下收起 · 长按关闭",
                 color = on.copy(alpha = 0.48f), fontSize = 8.sp, maxLines = 1, lineHeight = 10.sp)
         }

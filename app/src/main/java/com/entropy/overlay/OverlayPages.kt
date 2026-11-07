@@ -526,9 +526,9 @@ private val Chapters = listOf(
     ),
     Chapter(
         "控制台的开、收、藏", "控制台", "上手",
-        "两种形态：整面大面板和原子小球。点空白处一下，大面板就收回小球。",
+        "两种形态：整面大面板和熵粒子。点空白处一下，大面板就收回小球。",
         listOf(
-            "在应用首页打开「悬浮控制台」，屏幕上出现一颗原子小球。它就是控制台收起来的样子。",
+            "在应用首页打开「悬浮控制台」，屏幕上出现一颗熵粒子。它就是控制台收起来的样子。",
             "点小球 → 弹出它自己的紧凑控制台（档位 + 读数 + 切形态）。够用，且只占一小块。刚被空白处收回来的那颗球不算，见下一条。",
             "要整面：在紧凑控制台里选「左侧控制台」，面板会贴住屏幕左侧展开，左边是六节。",
             "点面板外面的空白处会把大面板收回小球。按在面板里、右半那块小面板里、灵动岛上都不算点外面 —— 同一下手势会被认出来。",
@@ -825,9 +825,9 @@ internal fun QuickSwitchPage(win: OverlayWindow, store: EntropyStore, state: UiS
             store.prefs.showVolumeGuide = it
         }
         // ChipRow 而不是两个 weight(1f)：右面板在竖屏上内宽只有 74dp，两枚各分一半就是 34dp，
-        // "原子小球"这类四字标签会被切成两个字。换行让每枚保持自己的内容宽，装不下就下一行
+        // "熵粒子"这种标签会被切成两个字。换行让每枚保持自己的内容宽，装不下就下一行
         ChipRow {
-            Chip("原子小球", store.overlayForm.value == OverlayForm.BALL) {
+            Chip("熵粒子", store.overlayForm.value == OverlayForm.BALL) {
                 win.setForm(OverlayForm.BALL)
             }
             Chip("控制台", store.overlayForm.value == OverlayForm.PANEL) {

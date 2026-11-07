@@ -139,7 +139,7 @@ enum class HudItem(val bit: Int, val label: String) {
 
 /**
  * 悬浮控制台的形态。
- * BALL  可拖动、可捏合的原子小球，点开是它自己的紧凑控制台。
+ * BALL  可拖动、可捏合的熵粒子，点开是它自己的紧凑控制台。
  * PANEL 贴住屏幕左侧的整高控制台，标签栏在左边竖排，控制项比小球控制台多得多。
  *
  * 宽度按屏幕走（见 OverlayService 的 panelWidthPx），不是死的一半屏：
@@ -153,7 +153,7 @@ enum class OverlayForm {
 
     val label: String
         get() = when (this) {
-            BALL -> "原子小球"
+            BALL -> "熵粒子"
             PANEL -> "左侧控制台"
         }
 
@@ -251,7 +251,7 @@ class Prefs(context: Context, private val onChange: () -> Unit) {
         get() = sp.getInt("gpu_max_khz", 0)
         set(v) = put("gpu_max_khz", v.coerceAtLeast(0))
     /**
-     * 原子小球尺寸倍率：捏合缩放的结果。
+     * 熵粒子尺寸倍率：捏合缩放的结果。
      * 基准直径 44dp，倍率区间 0.7~1.4 —— 1.4 倍也才 62dp，
      * 再大就会盖住准星附近那块区域，那种需求该用左侧控制台。
      */

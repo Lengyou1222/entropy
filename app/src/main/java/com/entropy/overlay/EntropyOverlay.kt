@@ -2,8 +2,8 @@
 //
 // 悬浮控制台的两套形态。
 //
-// 形态一 BALL：可拖动、可捏合缩放的"原子"。核 = 当前温度色，三条电子轨道 + 电子
-//   沿轨道跑，轨道本身再整体慢转。基准直径 44dp —— 游戏里真正需要的是"随时能点开"，
+// 形态一 BALL：可拖动、可捏合缩放的"熵粒子"。一颗发光的核 + 一圈按温度填充的弧 +
+//   向外散去的浮尘，颜色跟 tempColor。基准直径 44dp —— 游戏里真正需要的是"随时能点开"，
 //   不是"随时能看见"，再大就会吃掉准星附近那块区域。
 //   点开是它自己的紧凑控制台（档位 + 读数 + 切形态），不是第二块面板。
 //
@@ -89,12 +89,11 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.lerp
-import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.LocalContext
@@ -379,7 +378,7 @@ private fun panelStageSpec(exiting: Boolean): AnimationSpec<Float> =
 private fun panelStageAlpha(p: Float): Float = (0.25f + 0.75f * p).coerceIn(0f, 1f)
 
 // ------------------------------------------------------------------ //
-// 形态一：原子小球                                                      //
+// 形态一：熵粒子                                                      //
 // ------------------------------------------------------------------ //
 
 @Composable
@@ -413,7 +412,7 @@ private fun BallConsole(
     }, contentAlignment = Alignment.Center) {
         if (!expanded) {
             // 用户明确不要那颗圆角方块底板和描边：一颗带边框的方块贴在桌面上，
-            // 既不像"原子"也不像应用里的卡片，只是块控件。这里改回一团自己发光的圆：
+            // 既不像"粒子"也不像应用里的卡片，只是块控件。这里改回一团自己发光的圆：
             // 底色是从中心淡出到透明的温度色径向渐变，画不到边界就已经透明，
             // 所以没有硬边、没有描边，也不需要 clip；颜色仍然跟着配色方案与温度走。
             Box(
@@ -435,15 +434,17 @@ private fun BallConsole(
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     // 数字只在球够大时画：1.0 倍率下这一格只有约 30dp，塞两个汉字会变成糊的一团
-                    Atom(tint = tint, alert = fused, contained = false,
+                    EntropyMark(tint = tint, alert = fused, contained = false,
+                        tempC = tempC, alertAtC = store.hudAlertMc.intValue / 1000f,
                         modifier = Modifier.size(30.dp))
                     Text(
                         if (ballScale >= 1.15f && tempC != null) "%.0f℃".format(tempC) else "熵",
                         // 没有底板就没有"底色"可依了：字压在深色游戏画面上要够亮，压在
-                        // 白色桌面上又不能消失，所以给亮色字配一道投影兜住两头
-                        color = lerp(tint, Color.White, 0.55f),
+                        // 白色桌面上又不能消失。往白只提三成 —— 提到五成时在浅色主题上
+                        // 实测淡到几乎读不出，而投影已经把深色那一头兜住了
+                        color = lerp(tint, Color.White, 0.3f),
                         style = TextStyle(shadow = Shadow(
-                            color = Color(0x99000000), offset = Offset(0f, 1f), blurRadius = 4f)),
+                            color = Color(0xB3000000), offset = Offset(0f, 1f), blurRadius = 5f)),
                         fontSize = (9 * ballScale).sp,
                         fontWeight = FontWeight.Bold, maxLines = 1
                     )
@@ -484,7 +485,8 @@ private fun BallConsoleCard(
             }
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Atom(tint = tint, alert = state.safety.fused, contained = true,
+            EntropyMark(tint = tint, alert = state.safety.fused, contained = true,
+                tempC = tempC, alertAtC = store.hudAlertMc.intValue / 1000f,
                 modifier = Modifier.size(26.dp))
             Spacer(Modifier.width(7.dp))
             Column {
@@ -542,96 +544,98 @@ private fun BallConsoleCard(
 }
 
 /**
- * 原子造型。
+ * 熵粒子。
  *
- * 三层：外圈辉光（径向渐变，画出"能量"而不是一个实心圆）、三条倾斜电子轨道 + 电子
- * 与它的拖尾、中心的核。轨道整体慢转 + 电子各自快跑，两个频率差得足够远，
- * 眼睛才会读成"在转"而不是"在闪"。
+ * 三层：向外散去的浮尘、一圈按温度填充的弧、中间那颗自身发光的核。
+ * 三样说的是同一件事 —— 温度越靠近提醒线，弧填得越满、粒子散得越远越亮，
+ * 颜色仍然是 tempColor 那一条梯度。没有温度读数时整圈弧不画：画一条空弧会被读成
+ * "满"，而真相是这台机器此刻没有可信的温度来源。
  *
- * 系统里"动画时长 = 0"时不建无限动画，直接画一张静止的原子：
+ * 上一版是原子（三条电子轨道 + 电子沿轨道跑），换掉有两个理由。一是语义：
+ * 轨道是最"有序"的图形，而这块东西要表达的是熵 —— 热量正在散开。二是尺寸：
+ * 小球那颗只有 30dp、面板页眉只有 22dp，三圈椭圆在这个尺寸上退化成线框，
+ * 核几乎看不见，越小的屏越像画坏了。弧 + 核在这个尺寸上是能读的。
+ *
+ * 系统里"动画时长 = 0"时不建无限动画，直接画一张静止的粒子：
  * 关掉动画是用户的选择，悬浮窗不该绕过它 —— 无限动画在那种机器上会变成
- * 一条永不聊束的 60fps 重绘。
+ * 一条永不结束的 60fps 重绘。
  */
 @Composable
-private fun Atom(tint: Color, alert: Boolean, modifier: Modifier = Modifier,
+private fun EntropyMark(
+    tint: Color,
+    alert: Boolean,
+    tempC: Float?,
+    alertAtC: Float,
+    modifier: Modifier = Modifier,
     contained: Boolean = false,
 ) {
     val entropy = LocalEntropyColors.current
     val glow by animateColorAsState(
         targetValue = if (alert) entropy.warn else tint,
-        animationSpec = tween(360), label = "atomTint")
+        animationSpec = tween(360), label = "markTint")
     val still = rememberAnimationsOff()
-
-    val spin = if (still) 0f else infinite01(9_600, "spin")
-    val rev = if (still) 0.22f else infinite01(2_800, "rev")
-    val breathe = if (still) 1f else infiniteWave(2_200, 0.9f, 1.07f)
-
-    // 小球那颗芯片有底板了，辉光就不必再负责"抹掉硬边"；留强反而把描边冲成一团
-    val glowPeak = if (contained) 0.18f else 0.34f
-    val orbitAlpha = if (contained) 0.78f else 0.55f
-    val coreWhite = if (contained) 0.72f else 0.92f
-    // 电子在深底上是白点，但浅色配色方案的芯片底板本身就接近白，
-    // 白点落上去等于没画 —— 这一档改用界面墨色，和卡片上的字同一个明度
-    val spark = if (contained) entropy.onScrim.copy(alpha = 0.9f) else Color.White
+    val drift = if (still) 0.42f else infinite01(5_400, "drift")
+    val breathe = if (still) 1f else infiniteWave(2_200, 0.92f, 1.06f)
+    // 弧填多少：25℃ 是空圈，到提醒线是满圈。越线之后靠颜色报警，不靠溢出的一截弧，
+    // 所以上限钳死在 1。提醒线在 Prefs 里已经钳到 40~90℃，分母不会碰见 0
+    val ratio = tempC?.let { ((it - 25f) / (alertAtC - 25f)).coerceIn(0f, 1f) }
+    // 画在浅色卡片/页眉上时粒子直接用温度色：白点落在近白的底板上等于没画
+    val mote = if (contained) glow else lerp(glow, Color.White, 0.5f)
 
     Canvas(modifier) {
         val r = size.minDimension / 2f
         val c = center
-        // 辉光比轨道半径略大，边界完全淡出，这样小球贴在任何游戏画面上都没有硬边
+        // 辉光画到边界已经完全透明，所以小球贴在任何游戏画面上都没有硬边
         drawCircle(
             Brush.radialGradient(
-                colorStops = arrayOf(0f to glow.copy(alpha = glowPeak),
-                    0.55f to glow.copy(alpha = glowPeak * 0.38f), 1f to Color.Transparent),
+                colorStops = arrayOf(
+                    0f to glow.copy(alpha = if (contained) 0.22f else 0.36f),
+                    0.58f to glow.copy(alpha = if (contained) 0.08f else 0.13f),
+                    1f to Color.Transparent),
                 center = c, radius = r),
             radius = r, center = c)
 
-        val major = r * 0.82f
-        val minor = r * 0.30f
-        val orbitW = min(r * 0.055f, 2.4f)
-        val electronR = r * 0.115f
-
-        for (i in 0 until 3) {
-            val tilt = i * 60f + spin * 360f
-            val phase = rev * 360f + i * 120f
-            rotate(degrees = tilt, pivot = c) {
-                drawOval(
-                    color = glow.copy(alpha = if (alert) 0.85f else orbitAlpha),
-                    radiusX = major, radiusY = minor, center = c, strokeW = orbitW)
-                // 拖尾：电子后面 5 个点，半径与透明度同时衰减，读起来是一条弧线而不是五个点
-                for (k in 5 downTo 1) {
-                    val a = Math.toRadians((phase - k * 9f).toDouble())
-                    drawCircle(
-                        color = glow.copy(alpha = 0.10f * (6 - k)),
-                        radius = electronR * (1f - k * 0.13f),
-                        center = Offset(c.x + major * cos(a).toFloat(), c.y + minor * sin(a).toFloat()))
-                }
-                val e = Math.toRadians(phase.toDouble())
-                drawCircle(
-                    color = spark,
-                    radius = electronR,
-                    center = Offset(c.x + major * cos(e).toFloat(), c.y + minor * sin(e).toFloat()))
-            }
+        if (ratio != null) {
+            val gr = r * 0.82f
+            val sw = (r * 0.10f).coerceIn(1.5f, 3f)
+            val topLeft = Offset(c.x - gr, c.y - gr)
+            val arcSize = Size(gr * 2f, gr * 2f)
+            drawArc(glow.copy(alpha = 0.15f), -90f, 360f, useCenter = false,
+                topLeft = topLeft, size = arcSize, style = Stroke(width = sw, cap = StrokeCap.Round))
+            // 满圈时故意留 0.4° 不画完：360° 的 drawArc 在部分机器上会把闭合处
+            // 收成一条缝，到线那一刻弧上反而出现一个缺口
+            drawArc(glow, -90f, if (ratio >= 1f) 359.6f else 360f * ratio, useCenter = false,
+                topLeft = topLeft, size = arcSize, style = Stroke(width = sw, cap = StrokeCap.Round))
         }
 
-        val nr = r * 0.26f * breathe
+        // 浮尘：八粒从核边缘向外飘。飘多远、有多亮都跟着温度走 —— "热量正在散开"
+        // 这句话得图形自己说，不能只写在注释里。固定八粒而不是按温度增减，
+        // 是因为增减会让某一角上的粒子凭空出现，读起来像闪烁而不是散热
+        val moteGain = (if (ratio == null) 0.5f else 0.45f + 0.55f * ratio) *
+            (if (contained) 0.7f else 1f)
+        val reach = if (ratio == null) 0.45f else 0.35f + 0.55f * ratio
+        for (i in 0 until 8) {
+            val a = Math.toRadians((i * 45f + i * i * 11f).toDouble())
+            val t = (drift + i / 8f) % 1f
+            val rr = r * (0.34f + reach * t)
+            drawCircle(
+                color = mote.copy(alpha = (1f - t) * moteGain),
+                // 30dp 的球上半个 r 只有 22px，按比例算出来的粒子是 1px 级，等于没画：
+                // 给一个像素下限，让它在最小的那一档上仍然是"看得见的几粒"
+                radius = (r * 0.085f * (1f - 0.45f * t)).coerceAtLeast(2.2f),
+                center = Offset(c.x + rr * cos(a).toFloat(), c.y + rr * sin(a).toFloat()))
+        }
+
+        // 核：高光偏左上一格，让它是个球而不是个饼
+        val nr = r * 0.30f * breathe
         drawCircle(
             Brush.radialGradient(
-                listOf(Color.White.copy(alpha = coreWhite), glow.copy(alpha = 0.95f),
-                    glow.copy(alpha = 0.55f)),
+                listOf(Color.White.copy(alpha = if (contained) 0.78f else 0.95f),
+                    glow.copy(alpha = 0.95f), glow.copy(alpha = 0.55f)),
                 center = Offset(c.x - nr * 0.28f, c.y - nr * 0.28f), radius = nr * 1.7f),
             radius = nr, center = c)
     }
 }
-
-/** 轨道/电子画在旋转坐标系里，所以要能在 rotate{} 内直接用长短半轴画椭圆 */
-private fun DrawScope.drawOval(
-    color: Color, radiusX: Float, radiusY: Float, center: Offset, strokeW: Float,
-) = drawOval(
-    color = color,
-    topLeft = Offset(center.x - radiusX, center.y - radiusY),
-    size = Size(radiusX * 2f, radiusY * 2f),
-    style = Stroke(width = strokeW, cap = androidx.compose.ui.graphics.StrokeCap.Round)
-)
 
 /** 0..1 匀速循环 */
 @Composable
@@ -680,7 +684,7 @@ internal enum class PanelTab(val label: String, val icon: Glyph, val hint: Strin
     VISUAL("画质", Glyph.VISUAL, "分辨率、刷新率、帧率与清晰度"),
     THERMAL("温控", Glyph.THERMAL, "软上限、熔断线、提醒线三者的关系"),
     SYSTEM("系统", Glyph.SYSTEM, "entropyd、Root、极限探测与后台冻结"),
-    SKIN("外观", Glyph.SKIN, "主题、原子小球尺寸与形态"),
+    SKIN("外观", Glyph.SKIN, "主题、熵粒子尺寸与形态"),
 }
 
 /**
@@ -872,7 +876,7 @@ private fun SideConsole(
 /**
  * 大面板抬头。
  *
- * 这一行的固定内容（原子 + 熵 + 平台徽标 + 等级徽标 + 温度 + 两个动作）本来要 247dp，
+ * 这一行的固定内容（熵粒子 + 熵 + 平台徽标 + 等级徽标 + 温度 + 两个动作）本来要 247dp，
  * 而竖屏窄机器上左面板整块只有 208dp：温度和"小球""隐藏"一起被窗口裁掉，
  * 用户连"收成小球"都点不到。宽度不够时先退掉两处次要信息 ——
  * 平台与等级在右面板"我的"页里都还在，动作键和温度是这一行不能丢的东西。
@@ -888,8 +892,10 @@ private fun PanelHeader(win: OverlayWindow, store: EntropyStore, state: UiState)
             Modifier.padding(start = 12.dp, end = 10.dp, top = 2.dp, bottom = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Atom(tint = if (fused) entropy.warn else tempColor(entropy, tempC ?: 30f),
-                alert = fused, contained = true, modifier = Modifier.size(22.dp))
+            EntropyMark(tint = if (fused) entropy.warn else tempColor(entropy, tempC ?: 30f),
+                alert = fused, contained = true, tempC = tempC,
+                alertAtC = store.hudAlertMc.intValue / 1000f,
+                modifier = Modifier.size(22.dp))
             Spacer(Modifier.width(7.dp))
             Text("熵", color = entropy.onScrim, fontWeight = FontWeight.Bold, fontSize = 15.sp)
             Spacer(Modifier.width(5.dp))
@@ -912,7 +918,7 @@ private fun PanelHeader(win: OverlayWindow, store: EntropyStore, state: UiState)
                 color = if (fused) entropy.warn else tempColor(entropy, tempC ?: 30f),
                 fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1)
             Spacer(Modifier.width(9.dp))
-            // 用文字而不是箭头字形：这个动作是"收成原子小球"，
+            // 用文字而不是箭头字形：这个动作是"收成熵粒子"，
             // 单个箭头符号没人能猜出它代表什么
             Text("小球", color = entropy.onScrim.copy(alpha = 0.6f), fontSize = 12.sp,
                 maxLines = 1,
@@ -1347,7 +1353,7 @@ private fun SkinSection(win: OverlayWindow, store: EntropyStore, state: UiState)
             }
         }
     }
-    PanelCard("原子小球") {
+    PanelCard("熵粒子") {
         // 倍率没有整型语义，滑杆按百分数走（70~140），下发前再除回 100
         OverlaySlider(
             label = "尺寸",
@@ -1362,7 +1368,7 @@ private fun SkinSection(win: OverlayWindow, store: EntropyStore, state: UiState)
     }
     PanelCard("形态") {
         ChipRow {
-            Chip("原子小球", store.overlayForm.value == OverlayForm.BALL) {
+            Chip("熵粒子", store.overlayForm.value == OverlayForm.BALL) {
                 win.setForm(OverlayForm.BALL)
             }
             Chip("左侧控制台", store.overlayForm.value == OverlayForm.PANEL) {

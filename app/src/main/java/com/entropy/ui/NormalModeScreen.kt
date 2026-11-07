@@ -255,7 +255,7 @@ fun NormalModeScreen(
         }
 
         OutlinedButton(onClick = onStartOverlay, modifier = Modifier.fillMaxWidth()) {
-            Text("开启原子小球悬浮控制台")
+            Text("开启熵粒子悬浮控制台")
         }
 
         if (state.lastMessage.isNotEmpty()) {

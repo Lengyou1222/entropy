@@ -975,7 +975,7 @@ class OverlayService : LifecycleService(), OverlayWindow, SavedStateRegistryOwne
         private const val GUIDE_BOTTOM_DP = 92f
         private const val GUIDE_MS = 8200L
 
-        /** 原子小球基准直径与窗口余量（dp）。44dp 是"游戏里不挡视线"的上限，再大就该用控制台 */
+        /** 熵粒子基准直径与窗口余量（dp）。44dp 是"游戏里不挡视线"的上限，再大就该用控制台 */
         private const val BALL_BASE_DP = 44f
         private const val BALL_PAD_DP = 14f
 
