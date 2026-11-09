@@ -286,7 +286,7 @@ class SystemRepository(private val context: Context, private val shell: ShellRun
     suspend fun systemInfo(): SystemInfo = withContext(Dispatchers.IO) {
         val pm = context.packageManager
         val appInfo = pm.getApplicationInfo(context.packageName, 0)
-        val profile = DeviceProber.probe()
+        val profile = DeviceProber.probe(this@SystemRepository.context)
         SystemInfo(
             appName = pm.getApplicationLabel(appInfo).toString(),
             versionName = BuildConfig.VERSION_NAME,

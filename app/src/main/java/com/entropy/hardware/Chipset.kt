@@ -120,6 +120,18 @@ data class DeviceProfile(
         val minKhz: Int,
     ) {
         val maxLimitKhz get() = availKhz.maxOrNull() ?: curMaxKhz
+
+        /**
+         * 给滑杆和吸附用的有序区间。
+         *
+         * min_gpu_clock 与 max_gpu_clock 是两个各自独立可写的 sysfs 节点， avail 表又可能
+         * 整个读不到（SELinux 挡住时 readKhzList 返回空表，两端就各自回退到不同的节点）。
+         * 于是 minKhz > maxLimitKhz 是真会出现的状态，直接拿去 coerceIn 会抛
+         * "Cannot coerce value to an empty range" —— 用户拖一下 GPU 上限就崩。
+         * 这里只把顺序摆正，不改任何实测值：读到的还是那两个数，谁大谁小由它们自己说。
+         */
+        val loKhz get() = minOf(minKhz, maxLimitKhz)
+        val hiKhz get() = maxOf(minKhz, maxLimitKhz)
     }
 }
 
@@ -129,10 +141,28 @@ object DeviceProber {
         java.io.File(path).readText().trim()
     } catch (e: Exception) { "" }
 
-    fun probe(display: android.view.Display? = null): DeviceProfile {
+    /**
+     * 走 WindowManager 而不是 Context.getDisplay()：Application Context 没有窗口
+     * token，后者在界面还没起来时会直接抛 "no associated token and no active display"，
+     * 而 HardwareBridge 是在 Application 级单例的字段初始化里就探测硬件的。
+     */
+    @Suppress("DEPRECATION")
+    private fun displayOf(context: android.content.Context?): android.view.Display? =
+        runCatching {
+            (context?.getSystemService(android.content.Context.WINDOW_SERVICE)
+                as? android.view.WindowManager)?.defaultDisplay
+        }.getOrNull()
+
+    /**
+     * @param context 只有拿到 Context 才可能问到 Display。不传就退化成硬编码的
+     *  1080x2400 + 空刷新率表，而分辨率降档是按这个尺寸算的 —— 非 1080x2400 的机器
+     *  于是会下发一组物理上不存在的模式（实测 900x1600 的屏幕被写成 540x1200）。
+     */
+    fun probe(context: android.content.Context? = null): DeviceProfile {
         val family = ChipsetInfo.family()
         val clusters = readClusters()
         val zones = readThermalZones()
+        val display = displayOf(context)
         val rates = ChipsetInfo.readRefreshRates(display)
         val res = ChipsetInfo.readNativeResolution(display)
         return DeviceProfile(

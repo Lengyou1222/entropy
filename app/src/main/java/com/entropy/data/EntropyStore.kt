@@ -260,11 +260,11 @@ class Prefs(context: Context, private val onChange: () -> Unit) {
         set(v) = put("ball_scale", v.coerceIn(0.7f, 1.4f))
     /** 分辨率预设：0=原生 1=3/4 2=2/3 3=1/2，与 DevMode 的候选表同一套语义 */
     var resPreset: Int
-        get() = sp.getInt("res_preset", 0)
+        get() = sp.getInt("res_preset", 0).coerceIn(0, 3)
         set(v) = put("res_preset", v.coerceIn(0, 3))
     var touchHz: Int
-        get() = sp.getInt("touch_hz", 240)
-        set(v) = put("touch_hz", v)
+        get() = sp.getInt("touch_hz", 240).coerceIn(120, 300)
+        set(v) = put("touch_hz", v.coerceIn(120, 300))
     /**
      * 安全显示悬浮窗：一块只写帧率和温度、可以常驻的小窗。
      * 它和悬浮控制台是两块独立窗口，所以开关也独立 —— 关控制台不该把提醒一起关掉。
@@ -386,6 +386,12 @@ class EntropyStore private constructor(val context: Context) {
      */
     val palette = mutableStateOf(prefs.palette)
     val highlightColor = mutableIntStateOf(prefs.highlightColor)
+    /**
+     * 警示色也走快照。它是 EntropyTheme 的入参，而主题挂在每块悬浮窗的根上：
+     * 靠 prefsTick 感知改动会让"任何一项偏好被写过"都把整块面板从头重组一遍，
+     * 拖一根滑杆就是几十次全树重组。单独一个状态，改色时只重排主题那一层。
+     */
+    val accentColor = mutableIntStateOf(prefs.accentColor)
     val showVolumeGuide = mutableStateOf(prefs.showVolumeGuide)
 
     /**
@@ -509,6 +515,12 @@ class EntropyStore private constructor(val context: Context) {
         prefs.highlightColor = argb
         // 快照取回读值而不是入参：写入处会把坏值丢掉，这里照抄入参会让两边不一致
         highlightColor.intValue = prefs.highlightColor
+    }
+
+    /** 警示色：同样取回读值，Prefs 会把 alpha 不对的整数丢回默认红 */
+    fun setAccentColor(argb: Int) {
+        prefs.accentColor = argb
+        accentColor.intValue = prefs.accentColor
     }
 
     fun setShowVolumeGuide(on: Boolean) {
@@ -757,12 +769,20 @@ class EntropyStore private constructor(val context: Context) {
     fun setResolutionPreset(which: Int) {
         prefs.resPreset = which
         scope.launch {
-            if (which == 0) bridge.resetResolution()
-            else {
-                val (nw, nh) = bridge.profile.nativeResolution
-                val f = when (which) { 1 -> 0.75f; 2 -> 2f / 3f; else -> 0.5f }
-                bridge.setResolution((nw * f).toInt(), (nh * f).toInt())
+            if (which == 0) {
+                bridge.resetResolution()
+                return@launch
             }
+            val (nw, nh) = bridge.profile.nativeResolution
+            // 原生尺寸没探到就宁可不改：以前这里落到占位的 1080x2400，
+            // 在 900x1600 的屏幕上算出 540x1200 这种整机没注册过的模式并真写了下去
+            if (nw <= 0 || nh <= 0) {
+                prefs.resPreset = 0
+                note("分辨率降档未生效：没探到面板原生尺寸")
+                return@launch
+            }
+            val f = when (which) { 1 -> 0.75f; 2 -> 2f / 3f; else -> 0.5f }
+            bridge.setResolution((nw * f).toInt(), (nh * f).toInt())
         }
     }
 

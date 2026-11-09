@@ -45,7 +45,7 @@ class HardwareBridge(private val context: Context) {
     @Volatile var path: Path = Path.READONLY
         private set
 
-    var profile: DeviceProfile = DeviceProber.probe()
+    var profile: DeviceProfile = DeviceProber.probe(context)
         private set
 
     /** 熔断状态快照，UI 顶栏要用它把整块面板染红 */
@@ -69,7 +69,8 @@ class HardwareBridge(private val context: Context) {
      * 于是用户重装了 App 却还在跑旧的调度逻辑。显式重跑就把旧的停掉、重新释放。
      */
     suspend fun init(reinstallDaemon: Boolean = false): Path = withContext(Dispatchers.IO) {
-        profile = DeviceProber.probe()
+        // CoroutineScope 自己也有个叫 context 的属性，这里显式点名类接收者，别赌解析顺序
+        profile = DeviceProber.probe(this@HardwareBridge.context)
         val mode = shell.detect()
         path = when {
             mode == ShellRunner.Mode.ROOT && ensureDaemon(reinstallDaemon) && daemon.connect() -> Path.DAEMON
@@ -82,7 +83,7 @@ class HardwareBridge(private val context: Context) {
 
     /** 重新探测硬件（root 后能读到更多节点，所以拿到权限后要再跑一次） */
     suspend fun rescan(): DeviceProfile = withContext(Dispatchers.IO) {
-        profile = DeviceProber.probe()
+        profile = DeviceProber.probe(this@HardwareBridge.context)
         profile
     }
 
@@ -296,7 +297,7 @@ class HardwareBridge(private val context: Context) {
             if (writeNode("$CPU_POLICY_BASE$policy/scaling_max_freq", target)) ok = true
         }
         profile.gpuFreq?.let { g ->
-            val target = if (gpu == 0) g.maxLimitKhz else snapDown(g.availKhz, gpu, g.minKhz, g.maxLimitKhz)
+            val target = if (gpu == 0) g.maxLimitKhz else snapDown(g.availKhz, gpu, g.loKhz, g.hiKhz)
             if (writeNode(g.maxNode, target)) ok = true
         }
         return ok

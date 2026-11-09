@@ -32,14 +32,9 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.AnimationSpec
 import androidx.compose.animation.core.CubicBezierEasing
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -75,10 +70,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -119,6 +116,7 @@ import com.entropy.ui.components.popScale
 import com.entropy.ui.theme.EntropyTheme
 import com.entropy.ui.theme.LocalEntropyColors
 import com.entropy.ui.theme.tempColor
+import kotlinx.coroutines.isActive
 import kotlin.math.cos
 import kotlin.math.min
 import kotlin.math.roundToInt
@@ -290,9 +288,8 @@ fun OverlayRoot(
     chrome: OverlayChrome,
     exiting: Boolean = false,
 ) {
-    val prefs = store.prefs
     EntropyTheme(
-        accentArgb = prefs.accentColor,
+        accentArgb = store.accentColor.intValue,
         themeMode = themeMode,
         dynamicColor = true,
         highlightArgb = store.highlightColor.intValue,
@@ -472,8 +469,8 @@ private fun BallConsoleCard(
     Column(
         Modifier.fillMaxSize().alpha(appear)
             .clip(RoundedCornerShape(22.dp))
-            // 和面板同一档不透明度：0.90 时底下 App 的正文能整行穿过来，卡片里的 10sp 小字直接读不了
-            .background(entropy.overlayScrim.copy(alpha = 0.97f))
+            // 和面板同一档不透明度：留一丝透明底下 App 的正文就会穿过来，卡片里的 10sp 小字直接读不了
+            .background(entropy.overlayScrim.copy(alpha = 1f))
             .padding(11.dp)
             // 卡片底下这行提示写着"双击切控制台"，那双击就得真的管用。
             // 计数在 OverlayRootView 那一层（小球、卡片、面板三种形态都归它），这里只留长按：
@@ -574,8 +571,14 @@ private fun EntropyMark(
         targetValue = if (alert) entropy.warn else tint,
         animationSpec = tween(360), label = "markTint")
     val still = rememberAnimationsOff()
-    val drift = if (still) 0.42f else infinite01(5_400, "drift")
-    val breathe = if (still) 1f else infiniteWave(2_200, 0.92f, 1.06f)
+    val clock = rememberMoteClock(still)
+    val drift = if (still) 0.42f else (clock % 5_400L) / 5_400f
+    // 呼吸是往返波：Reverse 的一个完整来回是两倍单程，前半涨后半落
+    val breathe = if (still) 1f else run {
+        val p = (clock % 4_400L) / 4_400f
+        val tri = if (p < 0.5f) p * 2f else (1f - p) * 2f
+        0.92f + 0.14f * tri
+    }
     // 弧填多少：25℃ 是空圈，到提醒线是满圈。越线之后靠颜色报警，不靠溢出的一截弧，
     // 所以上限钳死在 1。提醒线在 Prefs 里已经钳到 40~90℃，分母不会碰见 0
     val ratio = tempC?.let { ((it - 25f) / (alertAtC - 25f)).coerceIn(0f, 1f) }
@@ -637,23 +640,33 @@ private fun EntropyMark(
     }
 }
 
-/** 0..1 匀速循环 */
+/**
+ * 粒子的唯一时钟，返回启动以来的毫秒数。
+ *
+ * 原先漂移与呼吸各建一个 InfiniteTransition：两条独立的帧订阅，各自每个 vsync 写一次
+ * 状态，于是这块常驻浮窗永远按屏幕刷新率整块重绘 —— 球什么都没发生的时候也在烧电。
+ * 现在合成一条，并且每 33ms 才写一次状态：5.4s 的漂移和 2.2s 的呼吸都是慢曲线，
+ * 30fps 与 60fps 看不出差别，重组和绘制的次数却少了一半。
+ * 跳过的那些帧照样 await —— 协程醒一下很便宜，贵的是状态写入引出来的那一整轮组合。
+ */
 @Composable
-private fun infinite01(periodMs: Int, label: String): Float {
-    val t = rememberInfiniteTransition(label = "atom")
-    val v by t.animateFloat(0f, 1f,
-        infiniteRepeatable(tween(periodMs, easing = LinearEasing), RepeatMode.Restart), label = label)
-    return v
+private fun rememberMoteClock(still: Boolean): Long {
+    var elapsed by remember { mutableLongStateOf(0L) }
+    LaunchedEffect(still) {
+        if (still) return@LaunchedEffect
+        val start = withFrameNanos { it }
+        var emitted = start
+        while (isActive) {
+            val now = withFrameNanos { it }
+            if (now - emitted < MoteFrameNs) continue
+            emitted = now
+            elapsed = (now - start) / 1_000_000L
+        }
+    }
+    return elapsed
 }
 
-/** 正负往返的波，用来做核的呼吸 */
-@Composable
-private fun infiniteWave(periodMs: Int, from: Float, to: Float): Float {
-    val t = rememberInfiniteTransition(label = "atom")
-    val v by t.animateFloat(from, to,
-        infiniteRepeatable(tween(periodMs, easing = LinearEasing), RepeatMode.Reverse), label = "breathe")
-    return v
-}
+private const val MoteFrameNs = 33_000_000L
 
 /** 用户在开发者选项里把动画时长关掉了吗（scale < 1%） */
 @Composable
@@ -692,6 +705,12 @@ internal enum class PanelTab(val label: String, val icon: Glyph, val hint: Strin
  * AnimatedContent 在切换的瞬间会同时组合新旧两页，如果页面自己去读外层那个变量，
  * 退场那一帧会渲染成进场的内容，淡出动画里就看见文字自己变了一遍。
  * 页码随 targetState 一起传进来，各画各的。
+ *
+ * prefs 存的是普通值而不是快照状态，所以读它的组合要自己建立"偏好被写过"的读依赖
+ * （`store.prefsTick.intValue`，只读不赋值）。这条依赖**必须落在真正读 prefs 的那一节里**，
+ * 不能挂在面板根上：挂根上时主界面拖一根滑杆每跨一格写一次偏好，整块面板——抬头、
+ * 图标栏、正在跑的切页动画、所有滑杆——就跟着全树重组一次，一次拖动几十轮。
+ * 落在节里，重组范围就只有那一节，动画也不会被打断。
  */
 @Composable
 private fun PanelConsole(
@@ -700,13 +719,11 @@ private fun PanelConsole(
     state: UiState,
     chrome: OverlayChrome,
 ) {
-    // 只读不赋值：这一行的作用是给本组合建立"任何偏好被写过"的读依赖，
-    // 主界面改的渲染后端、悬浮窗改的帧率上限，两边才会立刻变色。
-    // 少了它，面板会一直显示改动之前的值（prefs 存的是普通值，不是快照状态）。
-    store.prefsTick.intValue
     val entropy = LocalEntropyColors.current
-    // 0.94 时底下 App 的字仍能从卡片缝隙里透出来，面板里本来字就小，读起来像重影
-    val scrim = entropy.overlayScrim.copy(alpha = 0.97f)
+    // 底板必须全不透明：0.97 时底下 App 的近黑正文仍会透出一层淡影（实测白底上差 7 个
+    // 色阶），面板里本来字就小，读起来像两行字叠在一起。全不透明还让合成器把这块当成
+    // 遮挡层、跳过底下那层的混合，常驻浮窗每帧少一笔 blending。
+    val scrim = entropy.overlayScrim.copy(alpha = 1f)
     var tab by rememberSaveable { mutableIntStateOf(0) }
 
     // 进出场的淡入与位移都在 OverlayRoot 那层做，这里不再自己 alpha 一次：
@@ -792,9 +809,8 @@ fun SideConsoleRoot(
     chrome: OverlayChrome,
     exiting: Boolean = false,
 ) {
-    val prefs = store.prefs
     EntropyTheme(
-        accentArgb = prefs.accentColor,
+        accentArgb = store.accentColor.intValue,
         themeMode = themeMode,
         dynamicColor = true,
         highlightArgb = store.highlightColor.intValue,
@@ -823,10 +839,9 @@ private fun SideConsole(
     state: UiState,
     chrome: OverlayChrome,
 ) {
-    // 和左面板同理：这块也直接读 prefs，改完偏好要立刻在这块窗口上看得见
-    store.prefsTick.intValue
     val entropy = LocalEntropyColors.current
-    val scrim = entropy.overlayScrim.copy(alpha = 0.97f)
+    // 全不透明，理由见 PanelConsole：留 3% 透明度高对比度的字就会透出一层淡影
+    val scrim = entropy.overlayScrim.copy(alpha = 1f)
     var side by rememberSaveable { mutableIntStateOf(0) }
 
     Column(
@@ -1075,6 +1090,8 @@ private fun LiveSection(store: EntropyStore, state: UiState) {
 
 @Composable
 private fun ScheduleSection(store: EntropyStore, state: UiState) {
+    // 偏好读依赖，见 PanelConsole
+    store.prefsTick.intValue
     val entropy = LocalEntropyColors.current
     val prefs = store.prefs
     val locked = store.locked(Feature.PROFILE)
@@ -1125,6 +1142,8 @@ private fun ScheduleSection(store: EntropyStore, state: UiState) {
  */
 @Composable
 private fun FreqCapCard(store: EntropyStore, state: UiState) {
+    // 偏好读依赖，见 PanelConsole
+    store.prefsTick.intValue
     val entropy = LocalEntropyColors.current
     val prefs = store.prefs
     val prof = store.bridge.profile
@@ -1154,8 +1173,8 @@ private fun FreqCapCard(store: EntropyStore, state: UiState) {
         if (gpu == null) {
             Text("这台机器没有可读的 GPU 频率节点", color = entropy.onScrim.copy(alpha = 0.45f), fontSize = 9.sp)
         } else {
-            val gLo = gpu.minKhz
-            val gHi = gpu.maxLimitKhz
+            val gLo = gpu.loKhz
+            val gHi = gpu.hiKhz
             if (gHi <= gLo) {
                 Text("GPU 频率表只有一档，没有可改的上限",
                     color = entropy.onScrim.copy(alpha = 0.45f), fontSize = 9.sp)
@@ -1184,6 +1203,8 @@ private fun FreqCapCard(store: EntropyStore, state: UiState) {
 
 @Composable
 private fun VisualSection(store: EntropyStore, state: UiState) {
+    // 偏好读依赖，见 PanelConsole
+    store.prefsTick.intValue
     val entropy = LocalEntropyColors.current
     val prefs = store.prefs
     PanelCard("分辨率 / 刷新率") {
@@ -1192,7 +1213,7 @@ private fun VisualSection(store: EntropyStore, state: UiState) {
             label = "渲染分辨率",
             value = prefs.resPreset,
             range = 0..3, detents = 4,
-            valueText = { listOf("原生", "3/4", "2/3", "1/2")[it] },
+            valueText = { listOf("原生", "3/4", "2/3", "1/2").getOrElse(it) { "原生" } },
             enabled = !locked,
             onCommit = { store.setResolutionPreset(it) }
         )
@@ -1248,6 +1269,8 @@ private fun VisualSection(store: EntropyStore, state: UiState) {
 
 @Composable
 private fun ThermalSection(store: EntropyStore, state: UiState) {
+    // 偏好读依赖，见 PanelConsole
+    store.prefsTick.intValue
     val entropy = LocalEntropyColors.current
     val prefs = store.prefs
     val locked = store.locked(Feature.THERMAL_CFG)
@@ -1420,13 +1443,18 @@ private val MetricCellMin = 62.dp
 internal fun MetricGrid(items: List<MetricData>) {
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         val cols = (((maxWidth + 10.dp) / (MetricCellMin + 10.dp)).toInt()).coerceIn(1, 3)
-        items.chunked(cols).forEach { row ->
-            Row(
-                Modifier.fillMaxWidth().padding(bottom = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                row.forEach { Metric(it.label, it.value, it.color, Modifier.weight(1f)) }
-                repeat(cols - row.size) { Spacer(Modifier.weight(1f)) }
+        // BoxWithConstraints 的 content 是一个 Box：直接往里 forEach 塞行，
+        // 每一行都会落在同一个起点上叠着画。六项读数在窄面板上是两行，
+        // 叠起来就是"0%0℃"这种两行字互相压字。要纵向排就得自己给一个 Column。
+        Column {
+            items.chunked(cols).forEach { row ->
+                Row(
+                    Modifier.fillMaxWidth().padding(bottom = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    row.forEach { Metric(it.label, it.value, it.color, Modifier.weight(1f)) }
+                    repeat(cols - row.size) { Spacer(Modifier.weight(1f)) }
+                }
             }
         }
     }
@@ -1478,10 +1506,16 @@ internal fun OverlaySlider(
     onCommit: (Int) -> Unit,
 ) {
     val entropy = LocalEntropyColors.current
-    var draft by remember(value) { mutableIntStateOf(value) }
-    val span = (range.last - range.first).toFloat()
+    // 两端按大小取，理由同 TickSlider：区间来自 sysfs，倒挂时 coerceIn(range) 会抛空区间异常。
+    val lo = minOf(range.first, range.last)
+    val hi = maxOf(range.first, range.last)
+    val span = (hi - lo).toFloat()
     val slots = (detents - 1).coerceAtLeast(1)
-    val step = span / slots
+    val step = if (span > 0f) span / slots else 1f
+    // 草稿一出生就落在区间内：value 直接来自偏好，旧版本写进去的数可能已经在区间外，
+    // 而 valueText 有的是拿它当下标用的（分辨率那根杆查一张四元素的表）。
+    val settled = value.coerceIn(lo, hi)
+    var draft by remember(settled) { mutableIntStateOf(settled) }
     val dim by animateFloatAsState(
         targetValue = if (enabled) 1f else 0.35f, animationSpec = tween(200), label = "sliderDim")
     val pop = popScale(draft)
@@ -1497,12 +1531,12 @@ internal fun OverlaySlider(
         // 松手才 onCommit 是有意保留的：拖动途中每一档都往内核写，
         // 手指划过去就会连着下十几个档，厂商温控会把它当成抖动
         SpringSliderTrack(
-            frac = if (span > 0f) ((draft - range.first) / span).coerceIn(0f, 1f) else 0f,
+            frac = if (span > 0f) ((draft - lo) / span).coerceIn(0f, 1f) else 0f,
             onScrub = { f ->
-                if (enabled) draft = (range.first + (f * span / step).roundToInt() * step)
-                    .roundToInt().coerceIn(range)
+                if (enabled) draft = (lo + (f * span / step).roundToInt() * step)
+                    .roundToInt().coerceIn(lo, hi)
             },
-            onScrubFinished = { if (enabled && draft != value) onCommit(draft) },
+            onScrubFinished = { if (enabled && draft != settled) onCommit(draft) },
             detents = detents,
             enabled = enabled,
             color = color,

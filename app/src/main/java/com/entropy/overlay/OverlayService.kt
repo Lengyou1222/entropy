@@ -709,7 +709,7 @@ class OverlayService : LifecycleService(), OverlayWindow, SavedStateRegistryOwne
             ) {
                 EntropyTheme(
                     themeMode = store.themeMode.value,
-                    accentArgb = store.prefs.accentColor,
+                    accentArgb = store.accentColor.intValue,
                     highlightArgb = store.highlightColor.intValue,
                     palette = store.palette.value,
                 ) { VolumeKeyGuide(onDismiss = { mainHandler.post { dismissGuide() } }) }

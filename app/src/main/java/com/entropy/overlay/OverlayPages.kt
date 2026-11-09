@@ -281,6 +281,8 @@ private fun pressScale(on: Boolean): Float {
  */
 @Composable
 internal fun SystemInfoPage(store: EntropyStore, state: UiState) {
+    // 偏好读依赖只建立在本页：挂在 SideConsole 根上会让任何一次偏好写入重组整块右面板
+    store.prefsTick.intValue
     val entropy = LocalEntropyColors.current
     val p = store.bridge.profile
     PageTitle(SideTab.INFO.label, SideTab.INFO.hint)
@@ -812,6 +814,8 @@ private fun nextChapterInCat(i: Int): Int {
 /** 最常用的几项。每项都只做"点一下就改"的事，需要滑的才用 OverlaySlider */
 @Composable
 internal fun QuickSwitchPage(win: OverlayWindow, store: EntropyStore, state: UiState) {
+    // 偏好读依赖，理由同 SystemInfoPage
+    store.prefsTick.intValue
     val entropy = LocalEntropyColors.current
     val ctx = LocalContext.current
     PageTitle(SideTab.QUICK.label, SideTab.QUICK.hint)
@@ -820,9 +824,11 @@ internal fun QuickSwitchPage(win: OverlayWindow, store: EntropyStore, state: UiS
             if (on) SafeHudService.start(ctx) else SafeHudService.stop(ctx)
         }
         // 浮窗本身不需要开关：这块页就是浮窗里的，能看见它就说明浮窗开着。
-        // 真正会想切的是"隐藏后还弹不弹那套音量键开合的引导"
-        ToggleRow("隐藏后的按键引导", store.prefs.showVolumeGuide) {
-            store.prefs.showVolumeGuide = it
+        // 真正会想切的是"隐藏后还弹不弹那套音量键开合的引导"。
+        // 走 store 而不是直接写 prefs：引导窗口订阅的是 store.showVolumeGuide 这份快照，
+        // 只写 prefs 的话开关看着翻了，引导却要等下次重启服务才跟着变。
+        ToggleRow("隐藏后的按键引导", store.showVolumeGuide.value) {
+            store.setShowVolumeGuide(it)
         }
         // ChipRow 而不是两个 weight(1f)：右面板在竖屏上内宽只有 74dp，两枚各分一半就是 34dp，
         // "熵粒子"这种标签会被切成两个字。换行让每枚保持自己的内容宽，装不下就下一行

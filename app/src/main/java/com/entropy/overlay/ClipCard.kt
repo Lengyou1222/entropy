@@ -43,6 +43,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.entropy.ui.theme.LocalEntropyColors
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * 三段素材。不标给用户看的名字：这一块从头到尾没有说过它是哪一段，
@@ -83,22 +84,40 @@ internal fun ClipCard() {
     var note by remember { mutableStateOf<String?>(null) }
     val surfaceOf = remember { mutableStateOf<Surface?>(null) }
     val player = remember { MediaPlayer() }
+    // prepareAsync 的回调是 native 层-posted 的：onDispose 跑完之后它照样会到一次。
+    // 没有这道闸，回调里的 start() 就打在已经 release 的播放器上 —— 那是 native 崩溃，
+    // Java 侧的 runCatching 接不住。用 AtomicBoolean 而不是快照状态：它不在组合里读，
+    // 不该为一次生命周期标记建立重组依赖。
+    val released = remember { AtomicBoolean(false) }
 
     DisposableEffect(Unit) {
-        player.setOnPreparedListener { runCatching { it.start() } }
+        player.setOnPreparedListener { if (!released.get()) runCatching { it.start() } }
         player.setOnErrorListener { _, what, extra ->
-            note = "这段解码失败（what=$what extra=$extra）"
+            if (!released.get()) note = "这段解码失败（what=$what extra=$extra）"
             true
         }
         onDispose {
-            runCatching { player.reset(); player.release() }
-            surfaceOf.value?.release()
+            released.set(true)
+            runCatching {
+                player.setOnPreparedListener(null)
+                player.setOnErrorListener(null)
+                player.setSurface(null)
+                player.reset()
+                player.release()
+            }
+            surfaceOf.value?.let { s -> runCatching { s.release() } }
             surfaceOf.value = null
         }
     }
 
     LaunchedEffect(path, surfaceOf.value) {
-        val s = surfaceOf.value ?: return@LaunchedEffect
+        val s = surfaceOf.value
+        if (s == null) {
+            // 切页签或收起面板会销毁纹理。播放器不知道这件事，会继续解码并往一个死表面上
+            // 推帧：画面没了，解码器和那份功耗还在。停在这里，等表面回来再重新 prepare。
+            runCatching { player.stop() }
+            return@LaunchedEffect
+        }
         note = null
         runCatching {
             player.reset()
@@ -132,6 +151,10 @@ internal fun ClipCard() {
                     override fun onSurfaceTextureSizeChanged(st: SurfaceTexture, w: Int, h: Int) = Unit
 
                     override fun onSurfaceTextureDestroyed(st: SurfaceTexture): Boolean {
+                        // 返回 true 是把 SurfaceTexture 交回给 TextureView 自己回收，
+                        // 那我们包出来的那个 Surface 就得在这一刻自己放掉：
+                        // 不放的话每翻一次页就漏一个 native 表面，翻几十次就是几十份显存。
+                        surfaceOf.value?.let { s -> runCatching { s.release() } }
                         surfaceOf.value = null
                         return true
                     }

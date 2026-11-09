@@ -210,9 +210,14 @@ fun DevModeScreen(store: EntropyStore, state: UiState) {
                 if (gpu == null) {
                     Text("这台机器没有可读的 GPU 频率节点（kgsl 与 devfreq 都没暴露可写的上限值）",
                         style = MaterialTheme.typography.bodySmall)
+                } else if (gpu.hiKhz <= gpu.loKhz) {
+                    // 和控制台那根滑杆同一条判据：只有一档时给说明，不留一根推不动的杆。
+                    // 以前这里没判，区间倒挂时 coerceIn 直接抛空区间异常，拖一下就崩。
+                    Text("GPU 频率表只有一档，没有可改的上限",
+                        style = MaterialTheme.typography.bodySmall)
                 } else {
-                    val gLo = gpu.minKhz
-                    val gHi = gpu.maxLimitKhz
+                    val gLo = gpu.loKhz
+                    val gHi = gpu.hiKhz
                     TickSlider(
                         value = if (gpuCap > 0) gpuCap.coerceIn(gLo, gHi) else gHi,
                         onValueChange = { gpuCap = it },

@@ -81,9 +81,9 @@ fun SystemEnhanceScreen(store: EntropyStore, state: UiState) {
             subtitle = "温度越限与熔断事件会用这个色染色，请选一个在你游戏画面上足够扎眼的颜色。" +
                 "它和「我的 · 外观」里的界面高亮色是两回事：那一个改的是全站强调色，" +
                 "这一个只改报警。",
-            currentArgb = prefs.accentColor,
+            currentArgb = store.accentColor.intValue,
             defaultArgb = 0xFFFF453A.toInt(),
-            onApply = { prefs.accentColor = it },
+            onApply = { store.setAccentColor(it) },
         )
 
         // ---------- 温控策略（取代"温控欺骗"） ---------- //

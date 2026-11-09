@@ -36,6 +36,7 @@ import android.content.res.Configuration
 import android.graphics.PixelFormat
 import android.os.Build
 import android.os.IBinder
+import android.os.PowerManager
 import android.view.Gravity
 import android.view.WindowManager
 import androidx.compose.runtime.CompositionLocalProvider
@@ -75,6 +76,7 @@ class SafeHudService : LifecycleService(), SavedStateRegistryOwner, HudWindow {
     private val store by lazy { EntropyStore.get(this) }
     private val wm by lazy { getSystemService(WINDOW_SERVICE) as WindowManager }
     private val nm by lazy { getSystemService(NOTIFICATION_SERVICE) as NotificationManager }
+    private val pm by lazy { getSystemService(POWER_SERVICE) as PowerManager }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     private val savedStateController = SavedStateRegistryController.create(this)
@@ -171,8 +173,12 @@ class SafeHudService : LifecycleService(), SavedStateRegistryOwner, HudWindow {
 
     private suspend fun sampleLoop() {
         var lastPkg: String? = null
+        var lastNotifText: String? = null
         // 挂起函数里没有 CoroutineScope 接收者，isActive 要从现在的上下文取
         while (currentCoroutineContext().isActive) {
+            // 息屏时没人看得到岛，1Hz 遍历一圈 sysfs 热区纯属白烧电。降到 15 秒一次，
+            // 只为让过热提醒还活着；真正的熔断由 daemon 自己执行，不依赖这条循环的节奏。
+            val awake = pm.isInteractive
             val pkg = store.prefs.hudTargetPkg
             // 换目标包必须清差分基线：否则第一次差值算的是"上一个应用累计的帧"
             if (pkg != lastPkg) { store.sampler.resetFps(); lastPkg = pkg }
@@ -183,8 +189,17 @@ class SafeHudService : LifecycleService(), SavedStateRegistryOwner, HudWindow {
             val r = merge(sample, st.telemetry, st.heartbeat, st.safety.fused)
             reading.value = r
             maybeAlert(r)
-            if (++tick % NOTIFY_EVERY_N == 0) nm.notify(NOTIF_ID, buildOngoing(r))
-            delay(SAMPLE_INTERVAL_MS)
+            // tick 只数亮屏时的采样：息屏那 15 秒一轮不该算进"每五轮更新一次通知"里
+            if (awake && ++tick % NOTIFY_EVERY_N == 0) {
+                val text = ongoingText(r)
+                // 显示的字没变就不重发。notify 会把整条通知重新绑定一遍、SystemUI 跟着重排，
+                // 而温度稳在 41.0℃、帧率是"—"的时候，五秒一次的重发全是白工。
+                if (text != lastNotifText) {
+                    lastNotifText = text
+                    nm.notify(NOTIF_ID, buildOngoing(r, text))
+                }
+            }
+            delay(if (awake) SAMPLE_INTERVAL_MS else SCREEN_OFF_INTERVAL_MS)
         }
     }
 
@@ -281,7 +296,12 @@ class SafeHudService : LifecycleService(), SavedStateRegistryOwner, HudWindow {
             .build()
     }
 
-    private fun buildOngoing(r: HudReading): Notification {
+    /** 常驻通知唯一会变的那行字。抽出来是为了让调用方能先比一比再决定要不要重发 */
+    private fun ongoingText(r: HudReading): String =
+        "温度 ${r.tempC?.let { "%.1f℃".format(it) } ?: "—"} · " +
+            "帧率 ${r.fps?.toString() ?: "—"} · 提醒线 %.0f℃".format(r.alertAtC)
+
+    private fun buildOngoing(r: HudReading, text: String = ongoingText(r)): Notification {
         val open = PendingIntent.getActivity(
             this, 22, Intent(this, MainActivity::class.java),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
@@ -290,8 +310,6 @@ class SafeHudService : LifecycleService(), SavedStateRegistryOwner, HudWindow {
             this, 23, Intent(this, SafeHudService::class.java).setAction(ACTION_DISMISS),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
-        val text = "温度 ${r.tempC?.let { "%.1f℃".format(it) } ?: "—"} · " +
-            "帧率 ${r.fps?.toString() ?: "—"} · 提醒线 %.0f℃".format(r.alertAtC)
         val builder = NotificationCompat.Builder(this, EntropyApp.HUD_CHANNEL)
             .setSmallIcon(R.drawable.ic_entropy_ball)
             .setContentTitle(getString(R.string.hud_channel))
@@ -344,7 +362,7 @@ class SafeHudService : LifecycleService(), SavedStateRegistryOwner, HudWindow {
                     reading = reading.value,
                     items = HudItem.of(store.hudItems.intValue),
                     themeMode = store.themeMode.value,
-                    accentArgb = store.prefs.accentColor,
+                    accentArgb = store.accentColor.intValue,
                     highlightArgb = store.highlightColor.intValue,
                     palette = store.palette.value,
                     capWidthPx = contentCapPx.value.first,
@@ -530,6 +548,9 @@ class SafeHudService : LifecycleService(), SavedStateRegistryOwner, HudWindow {
         private const val NOTIF_ID = 41002
         private const val ALERT_ID = 41003
         private const val SAMPLE_INTERVAL_MS = 1000L
+
+        /** 息屏时的采样间隔：岛没人看，留着这条循环只为让过热提醒还能响 */
+        private const val SCREEN_OFF_INTERVAL_MS = 15_000L
 
         /** 常驻通知 5 秒才更新一次：1Hz 重绘一条 LOW 通知除了费电没有任何意义 */
         private const val NOTIFY_EVERY_N = 5

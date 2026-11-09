@@ -145,7 +145,7 @@ class MainActivity : ComponentActivity() {
             }
             EntropyTheme(
                 themeMode = mode,
-                accentArgb = store.prefs.accentColor,
+                accentArgb = store.accentColor.intValue,
                 highlightArgb = store.highlightColor.intValue,
                 palette = store.palette.value,
             ) {

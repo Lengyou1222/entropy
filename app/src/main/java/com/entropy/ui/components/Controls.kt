@@ -208,9 +208,16 @@ fun TickSlider(
     val haptic = LocalHapticFeedback.current
     // 记住上一次落在第几格，用来判断这次是否"跨过了一格"
     val lastDetent = remember { androidx.compose.runtime.mutableIntStateOf(-1) }
-    val span = (range.last - range.first).toFloat()
+    // 区间两端按大小取，不按传入顺序：调用方的上下限来自 sysfs（GPU 的 min/max 是两个
+    // 独立可写节点），被别的调频工具改过之后完全可能倒挂。倒挂的 IntRange 是空区间，
+    // 拿去 coerceIn 会抛 IllegalArgumentException —— 拖动的那一下就是崩溃现场。
+    val lo = minOf(range.first, range.last)
+    val hi = maxOf(range.first, range.last)
+    val span = (hi - lo).toFloat()
     val slots = (detents - 1).coerceAtLeast(1)
-    val stepSize = span / slots
+    // 只有一档时 span 为 0，stepSize 再跟着成 0，下面 f*span/stepSize 就是 0/0=NaN。
+    // 给 1 让算式退化成"永远落在 lo"，而不是把 NaN 喂进弹簧和 Canvas。
+    val stepSize = if (span > 0f) span / slots else 1f
     val pop = popScale(value)
 
     Column(modifier = modifier) {
@@ -221,11 +228,11 @@ fun TickSlider(
                 modifier = Modifier.scale(pop))
         }
         SpringSliderTrack(
-            frac = if (span > 0f) ((value - range.first) / span).coerceIn(0f, 1f) else 0f,
+            frac = if (span > 0f) ((value - lo) / span).coerceIn(0f, 1f) else 0f,
             onScrub = { f ->
-                val snapped = (range.first + (f * span / stepSize).roundToInt() * stepSize)
-                    .roundToInt().coerceIn(range)
-                val idx = ((snapped - range.first) / stepSize).roundToInt()
+                val snapped = (lo + (f * span / stepSize).roundToInt() * stepSize)
+                    .roundToInt().coerceIn(lo, hi)
+                val idx = ((snapped - lo) / stepSize).roundToInt()
                 if (idx != lastDetent.value) {
                     lastDetent.value = idx
                     // LongPress 的震动比 TextHandleFeedback 更"实"，接近物理旋钮的顿挫
@@ -266,8 +273,11 @@ fun SpringSliderTrack(
     onScrubFinished: (() -> Unit)? = null,
 ) {
     val slots = (detents - 1).coerceAtLeast(1)
-    val pos = remember { Animatable(frac.coerceIn(0f, 1f)) }
-    LaunchedEffect(frac) { pos.animateTo(frac.coerceIn(0f, 1f), EntropyMotion.sliderSpring()) }
+    // NaN 一旦进了 Animatable，弹簧会把它一路带到 Canvas 的坐标里，画出来是整条轨道消失。
+    // 调用方算比例时可能除以 0，所以在入口处挡一次，而不是要求每个调用方都记得判。
+    val safe = if (frac.isFinite()) frac.coerceIn(0f, 1f) else 0f
+    val pos = remember { Animatable(safe) }
+    LaunchedEffect(safe) { pos.animateTo(safe, EntropyMotion.sliderSpring()) }
     var dragging by remember { mutableStateOf(false) }
     // 抓住时涨一圈、松手弹回：这条弹簧比轨道更"软"，按下那一下才有实体感
     val grow by animateFloatAsState(
@@ -284,7 +294,7 @@ fun SpringSliderTrack(
                 // 没有 Role.Slider 这个常量（Compose 的 Role 只有 Button/Checkbox/Switch/
                 // Tab/Image/Handle 那几档），所以这里只把百分比写进 stateDescription：
                 // 读屏软件会念"百分之四十"，比给一个错的 role 实在
-                stateDescription = "${(frac * 100).roundToInt()}%"
+                stateDescription = "${(safe * 100).roundToInt()}%"
                 if (!enabled) contentDescription = "不可调整"
             }
             .pointerInput(enabled, slots) {
