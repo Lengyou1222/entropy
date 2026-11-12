@@ -14,6 +14,8 @@
 package com.entropy.ui
 
 import android.os.Build
+import android.view.Gravity
+import android.view.WindowManager
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -56,6 +58,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
@@ -79,6 +82,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.DialogWindowProvider
 import com.entropy.data.EntropyStore
 import com.entropy.data.UiState
 import com.entropy.hardware.HardwareBridge
@@ -112,6 +116,28 @@ fun UfoTestDialog(store: EntropyStore, onClose: () -> Unit) {
         properties = DialogProperties(usePlatformDefaultWidth = false,
             decorFitsSystemWindows = false)
     ) {
+        // 这一页要占满整屏，但 decorFitsSystemWindows=false 在 Android 15 上只做到一半：
+        // decor 按整屏高测量（实测 900px），WM 却仍把窗口 frame 压在状态栏下面
+        // （frame=[0,36][1600,900]，只有 864px 可见）。于是 Compose 以为自己有 900px，
+        // 底部整整 36px 掉到屏幕外 —— 控制条那排药丸就是这么被切掉下半截的。
+        // 直接把窗口属性改成"贴屏幕左上角铺满"，让 frame 与 decor 高度对上。
+        // 用标记位只下一次、不每次重组都下：这一页每 120ms 就重算一次读数并重组，
+        // 反复 updateViewLayout 等于自己给自己制造掉帧，测出来的数也不干净了。
+        val dialogView = LocalView.current
+        var windowFitted by remember { mutableStateOf(false) }
+        SideEffect {
+            if (windowFitted) return@SideEffect
+            val window = (dialogView.parent as? DialogWindowProvider)?.window ?: return@SideEffect
+            windowFitted = true
+            window.addFlags(WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN)
+            val lp = window.attributes
+            lp.width = WindowManager.LayoutParams.MATCH_PARENT
+            lp.height = WindowManager.LayoutParams.MATCH_PARENT
+            lp.gravity = Gravity.TOP or Gravity.START
+            lp.x = 0
+            lp.y = 0
+            window.attributes = lp
+        }
         var pos by remember { mutableFloatStateOf(0f) }
         var speed by remember { mutableFloatStateOf(9f) }        // 像素/帧
         var paused by remember { mutableStateOf(false) }
