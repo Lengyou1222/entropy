@@ -10,7 +10,7 @@
 // 形态二 PANEL：贴屏幕左侧的控制台，标签栏在左边竖着一排。
 //   左侧栏是为了把"我在哪一节"变成一眼看得见的东西：以前十一张卡片从上到下排成一列，
 //   改个温控阈值要先把画质和渲染后端全部滚过去，位置感全靠记忆。
-//   现在六节，每节两到三张卡，切节有横向位移。
+//   现在七节，每节两到三张卡，切节有横向位移。
 //
 // 窗口尺寸由 OverlayService 给确定值，这里只按 chrome 留出的系统栏高度排版。
 //
@@ -73,6 +73,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
@@ -684,7 +685,7 @@ private fun rememberAnimationsOff(): Boolean {
 // ------------------------------------------------------------------ //
 
 /**
- * 六节。分节的原则是"同一节里的东西会一起被改"：
+ * 七节。分节的原则是"同一节里的东西会一起被改"：
  * 改了软上限必然要盯温度，所以实时与温控相邻；画质类五项一次全在同一节里。
  * 每节两到三张卡，保证不换页就能看完，也不至于长到要滚两屏。
  *
@@ -698,6 +699,7 @@ internal enum class PanelTab(val label: String, val icon: Glyph, val hint: Strin
     THERMAL("温控", Glyph.THERMAL, "软上限、熔断线、提醒线三者的关系"),
     SYSTEM("系统", Glyph.SYSTEM, "entropyd、Root、极限探测与后台冻结"),
     SKIN("外观", Glyph.SKIN, "主题、熵粒子尺寸与形态"),
+    RECORD("录制", Glyph.RECORD, "画面、声音、时长与成片，录着的时候不用回应用"),
 }
 
 /**
@@ -775,6 +777,7 @@ private fun PanelConsole(
                         PanelTab.THERMAL -> ThermalSection(store, state)
                         PanelTab.SYSTEM -> SystemSection(win, store, state)
                         PanelTab.SKIN -> SkinSection(win, store, state)
+                        PanelTab.RECORD -> RecordSection(win, store)
                     }
                     Spacer(Modifier.height(6.dp))
                 }
@@ -1045,7 +1048,7 @@ internal fun PageTitle(text: String, hint: String) {
 }
 
 // ------------------------------------------------------------------ //
-// 六节内容                                                             //
+// 七节内容                                                             //
 // ------------------------------------------------------------------ //
 
 @Composable
@@ -1575,6 +1578,9 @@ internal fun Chip(
     val entropy = LocalEntropyColors.current
     val scheme = MaterialTheme.colorScheme
     val pressed = remember { mutableStateOf(false) }
+    // pointerInput 只按 enabled 重启：onTap 若直接捕获 onClick，会一直用首次合成那份
+    // 闭包（"继续"点下去还是 pause）。用更新态引用，手势协程不用重启也拿得到新 lambda
+    val tap by rememberUpdatedState(onClick)
     val scale by animateFloatAsState(
         targetValue = if (pressed.value) 0.94f else 1f,
         animationSpec = spring(dampingRatio = 0.5f, stiffness = 520f), label = "chipPress")
@@ -1598,7 +1604,7 @@ internal fun Chip(
                         tryAwaitRelease()
                         pressed.value = false
                     },
-                    onTap = { onClick() }
+                    onTap = { tap() }
                 )
             },
         contentAlignment = Alignment.Center

@@ -2,12 +2,14 @@
 <!--
   File: app/src/main/res/xml/file_paths.xml
 
-  只放开 hwlog 与 update 两个子目录。根目录（filesDir）里还有 SharedPreferences 的备份
-  和释放出来的二进制，一旦写成 path="."，任何接住分享 Intent 的应用都能顺着
+  只放开 hwlog、update 与 Movies 三个子目录。根目录（filesDir）里还有 SharedPreferences
+  的备份和释放出来的二进制，一旦写成 path="."，任何接住分享 Intent 的应用都能顺着
   content:// 的路径猜出并读到别的东西。
   update/ 是给"安装新版"用的：装包时系统安装器要读那个 APK，只能经 content:// 递过去。
+  Movies/ 在外部私有目录里，是录屏成片的落点，播放与分享都要经它换 content://。
 -->
 <paths>
     <files-path name="hwlog" path="hwlog/" />
     <files-path name="update" path="update/" />
+    <external-files-path name="movies" path="Movies/" />
 </paths>

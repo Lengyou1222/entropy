@@ -339,6 +339,18 @@ class Prefs(context: Context, private val onChange: () -> Unit) {
     var recordBitrateMbps: Int
         get() = sp.getInt("record_bitrate", 0)
         set(v) = put("record_bitrate", v.coerceIn(0, 60))
+    /** 录屏边长缩放（百分比）。100 = 原生分辨率，往下缩是为了压体积与编码负载 */
+    var recordScalePct: Int
+        get() = sp.getInt("record_scale", 100)
+        set(v) = put("record_scale", v.coerceIn(25, 100))
+    /** 录屏音源：0 不录声音，1 麦克风，2 系统内录（API 29 起才有这条通道） */
+    var recordAudio: Int
+        get() = sp.getInt("record_audio", 0)
+        set(v) = put("record_audio", v.coerceIn(0, 2))
+    /** 录到这么多分钟就自动收尾。0 = 不限时，只有用户点停止才停 */
+    var recordAutoStopMin: Int
+        get() = sp.getInt("record_autostop", 0)
+        set(v) = put("record_autostop", v.coerceIn(0, 60))
     /**
      * 每次启动先查一次更新。默认开：这是本项目唯一的升级通道，
      * 关掉以后就只能在设置页手动点"立即检查"。
@@ -403,6 +415,9 @@ class EntropyStore private constructor(val context: Context) {
     val recordFollowRefresh = mutableStateOf(prefs.recordFollowRefresh)
     val recordFps = mutableIntStateOf(prefs.recordFps)
     val recordBitrateMbps = mutableIntStateOf(prefs.recordBitrateMbps)
+    val recordScalePct = mutableIntStateOf(prefs.recordScalePct)
+    val recordAudio = mutableIntStateOf(prefs.recordAudio)
+    val recordAutoStopMin = mutableIntStateOf(prefs.recordAutoStopMin)
     val autoUpdateCheck = mutableStateOf(prefs.autoUpdateCheck)
 
     /**
@@ -552,6 +567,21 @@ class EntropyStore private constructor(val context: Context) {
     fun setRecordBitrateMbps(mbps: Int) {
         prefs.recordBitrateMbps = mbps
         recordBitrateMbps.intValue = prefs.recordBitrateMbps
+    }
+
+    fun setRecordScalePct(pct: Int) {
+        prefs.recordScalePct = pct
+        recordScalePct.intValue = prefs.recordScalePct
+    }
+
+    fun setRecordAudio(mode: Int) {
+        prefs.recordAudio = mode
+        recordAudio.intValue = prefs.recordAudio
+    }
+
+    fun setRecordAutoStopMin(min: Int) {
+        prefs.recordAutoStopMin = min
+        recordAutoStopMin.intValue = prefs.recordAutoStopMin
     }
 
     private val _state = MutableStateFlow(UiState())

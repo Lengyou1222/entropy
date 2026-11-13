@@ -119,7 +119,7 @@ private fun LazyListScope.settingsItems(store: EntropyStore) {
     item { VolumeGuideSwitch(store) }
     item {
         SettingsNote(
-            "展开态是两块面板：左边大的装六节调节，右边小的装信息、我的、开关与排行，紧贴屏幕右缘。" +
+            "展开态是两块面板：左边大的装七节调节，右边小的装信息、我的、开关与排行，紧贴屏幕右缘。" +
                 "灵动岛固定在顶部、不可拖动，开关在首页「日常」页签里。"
         )
     }

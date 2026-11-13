@@ -115,6 +115,24 @@ class MainActivity : ComponentActivity() {
         else ScreenRecord.note.value = "已取消授权，没有开始录制"
     }
 
+    /**
+     * 录声音要先有麦克风权限（系统内录走的也是 AudioRecord，同样要它）。
+     * 拒绝也照样发录屏授权：服务那边会退回只录画面，并把原因写在页上，
+     * 不能因为一个可选的声音把整次录制拦掉。
+     */
+    private val audioPermLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { recordLauncher.launch(ScreenRecord.captureIntent(this)) }
+
+    private fun launchCapture() {
+        if (store.prefs.recordAudio != ScreenRecord.AUDIO_NONE &&
+            !ScreenRecord.hasAudioPermission(this)) {
+            audioPermLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        } else {
+            recordLauncher.launch(ScreenRecord.captureIntent(this))
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (intent.getBooleanExtra(EXTRA_UFO, false)) showUfo.value = true
@@ -141,7 +159,7 @@ class MainActivity : ComponentActivity() {
                 if (!recordRequest.value) return@LaunchedEffect
                 recordRequest.value = false
                 intent.removeExtra(EXTRA_RECORD)
-                recordLauncher.launch(ScreenRecord.captureIntent(this@MainActivity))
+                launchCapture()
             }
             EntropyTheme(
                 themeMode = mode,

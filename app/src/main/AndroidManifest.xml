@@ -24,6 +24,10 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
+    <!-- 录屏带声音时才用：麦克风与系统内录都要 RECORD_AUDIO，
+         Android 14 起后台读 AudioRecord 还要 microphone 这个前台服务类型 -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
@@ -91,7 +95,7 @@
         <service
             android:name=".media.RecordService"
             android:exported="false"
-            android:foregroundServiceType="mediaProjection" />
+            android:foregroundServiceType="mediaProjection|microphone" />
 
         <!-- Shizuku 客户端入口：Shizuku 服务端就是靠这条 authority 找到本应用，
              把自己列进它的权限页并让"应用内请求授权"能用。少了它，api 库照常工作，

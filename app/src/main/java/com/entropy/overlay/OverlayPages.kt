@@ -1,11 +1,11 @@
 // File: app/src/main/java/com/entropy/overlay/OverlayPages.kt
 //
-// 控制台的图标语言，和右栏那四块小型标签页。
+// 控制台的图标语言、右栏那四块小型标签页，以及左栏的「录制」节。
 //
 // 为什么图标是 Canvas 画而不是 vector 资源：
 // 整套悬浮窗只有深色底板一种配色，图标必须跟着主题色与"选中/未选中"即时变色。
-// vector 走 tint 也能做到，但六个节 + 四块页共十个图标要在 res/drawable 里养十个 xml，
-// 还要担心 R8 把没用到的裁掉。画在 DrawScope 里，九个图标一屏读完，改一笔就全体生效。
+// vector 走 tint 也能做到，但七个节 + 四块页共十一个图标要在 res/drawable 里养十一个 xml，
+// 还要担心 R8 把没用到的裁掉。画在 DrawScope 里，一屏读完，改一笔就全体生效。
 //
 // 右栏那四块（信息 / 我的 / 开关 / 排行）是"临时看一眼"的东西：再点一次同一个图标就收回，
 // 左栏那一节的选择不会被带走。所以页面状态是一个可空的下标而不是第三个标签枚举。
@@ -53,7 +53,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -91,9 +93,13 @@ import com.entropy.media.ScreenRecord
 import com.entropy.shared.Proto
 import com.entropy.ui.components.EntropyMotion
 import com.entropy.ui.theme.LocalEntropyColors
+import java.io.File
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
-/** 十个图标：左栏六节 + 右栏四页 */
-internal enum class Glyph { LIVE, SCHEDULE, VISUAL, THERMAL, SYSTEM, SKIN, INFO, GUIDE, QUICK, RANK }
+/** 十一个图标：左栏七节 + 右栏四页 */
+internal enum class Glyph { LIVE, SCHEDULE, VISUAL, THERMAL, SYSTEM, SKIN, RECORD, INFO, GUIDE, QUICK, RANK }
 
 /**
  * 图标本体。
@@ -172,6 +178,15 @@ internal fun RailGlyph(kind: Glyph, color: Color, modifier: Modifier = Modifier)
                 }
             }
 
+            // 摄像机：机身 + 右侧镜头 + 机身里那颗录制点
+            Glyph.RECORD -> {
+                drawRoundRect(color, topLeft = n(0f, .24f), size = Size(span * .66f, span * .52f),
+                    cornerRadius = CornerRadius(sw), style = line)
+                drawPath(poly(.7f to .42f, 1f to .24f, 1f to .76f, .7f to .58f).apply { close() },
+                    color, style = line)
+                drawCircle(color, radius = sw * .85f, center = n(.2f, .5f))
+            }
+
             // 信息：圆里的 i
             Glyph.INFO -> {
                 drawCircle(color, radius = span * .48f, center = n(.5f, .5f), style = line)
@@ -218,7 +233,7 @@ internal fun RailGlyph(kind: Glyph, color: Color, modifier: Modifier = Modifier)
 internal enum class SideTab(val label: String, val icon: Glyph, val hint: String) {
     GUIDE("我的", Glyph.GUIDE, "CPU 身份与五档阶梯，外加每个功能怎么用"),
     INFO("信息", Glyph.INFO, "这台机器的硬件、通道与能力，一眼看全"),
-    QUICK("开关", Glyph.QUICK, "最常用的几项，不用翻六节"),
+    QUICK("开关", Glyph.QUICK, "最常用的几项，不用翻七节"),
     RANK("排行", Glyph.RANK, "整张型号表铺开，看自己这颗 U 排在第几"),
 }
 
@@ -532,7 +547,7 @@ private val Chapters = listOf(
         listOf(
             "在应用首页打开「悬浮控制台」，屏幕上出现一颗熵粒子。它就是控制台收起来的样子。",
             "点小球 → 弹出它自己的紧凑控制台（档位 + 读数 + 切形态）。够用，且只占一小块。刚被空白处收回来的那颗球不算，见下一条。",
-            "要整面：在紧凑控制台里选「左侧控制台」，面板会贴住屏幕左侧展开，左边是六节。",
+            "要整面：在紧凑控制台里选「左侧控制台」，面板会贴住屏幕左侧展开，左边是七节。",
             "点面板外面的空白处会把大面板收回小球。按在面板里、右半那块小面板里、灵动岛上都不算点外面 —— 同一下手势会被认出来。",
             "被空白处收回的那颗球再点一下，直接回到大面板，不经过紧凑控制台：那一下是「临时收一下」，不是你改选了小球形态。真想用小球那一档，得从面板顶部按「小球」，之后点球就还是弹紧凑控制台。",
             "另外三条收起来的路：面板顶部右侧的「小球」（收成那颗球）、「隐藏」（彻底关掉浮窗）、音量减键。",
@@ -623,16 +638,20 @@ private val Chapters = listOf(
     ),
     Chapter(
         "录屏与防录屏", "录制", "日常",
-        "录屏的帧率跟屏幕刷新率走；防录屏开了以后，浮窗和灵动岛都不会出现在成片里。",
+        "画面、声音、分辨率与时长都能选；防录屏开了以后，浮窗和灵动岛都不会出现在成片里。",
         listOf(
-            "底部导航的「录制」页：开始 / 停止、时长、当前帧率、文件都在这块。",
-            "控制台右栏「开关」页也有一张「录屏」卡：防录屏开关 + 开始/停止 + 时长与目标帧率，玩游戏时不用回 App。",
-            "从控制台按「开始」会把应用带到前台一次 —— 系统那张授权框只能由 Activity 发出去，浮窗发不了。录起来之后按「停止」就在这块面板里，不再弹应用。",
-            "帧率默认跟着屏幕刷新率，也可以手动钉在某个值；上限 240。",
-            "系统会弹一次录屏授权框，那是 MediaProjection 本身要求的，不是额外的权限。",
-            "成片存在应用自己的目录里，页上那行「输出目录」写的就是实际路径；要留在相册里就点「存入相册」。",
-            "「防录屏」打开后，悬浮控制台、右侧小面板、灵动岛在成片与截屏里都不出现 —— 要录下这些面板就别开它。应用里的设置页和控制台那张卡是同一个开关，改哪边都立刻生效。",
-            "确认：录一段回看，面板在不在里面一目了然；在的话说明防录屏是关着的。",
+            "两个入口是同一份状态：应用底部导航的「录制」页，和控制台左栏的「录制」节。在哪边改，另一边都跟着变。",
+            "控制台右栏「开关」页那张「录屏」卡留的是最急的三下：开始/停止、暂停/继续、防录屏。声音、分辨率、定时与成片在左栏「录制」节。",
+            "从控制台按「开始」会把应用带到前台一次 —— 系统那张授权框只能由 Activity 发出去，浮窗发不了。录起来之后停止与暂停都在这块面板里，不再弹应用。",
+            "声音有三档：不录声音 / 麦克风 / 系统内录。麦克风录的是机器周围的声音；内录取的是别的应用正在播的声音，要 Android 10 起，而且对方允许采集才有声音 —— 多数游戏把它关着，录不到就换麦克风试一次。",
+            "麦克风权限在点「开始」时问一次（内录走的也是录音通道，同样要它）。拒绝就只录画面，页上会写明原因，不会把整次录制拦掉。",
+            "分辨率按边长缩放：原生 / 75% / 50%。50% 是长宽各一半，体积约四分之一，编码负载也一起下来。",
+            "暂停那一段不进成片：画面与声音的时间轴都会把它扣掉，时长读数也不含暂停。想接着录就点「继续」。",
+            "定时停止有不限 / 1 / 3 / 5 / 10 分钟，到点自己收尾，长时间挂着录不怕忘。",
+            "帧率默认跟着屏幕刷新率，也可以手动钉在某个值，上限 240；帧率与码率在应用的设置页里改。录起来之后显示的「实际 FPS」是事后量出来的 —— 屏幕只合成出这么多帧。",
+            "成片可以播放、分享、存入相册、删除（删除要再点一次确认）。都经 content:// 交出去，不需要存储权限；文件本身在应用自己的目录里，页上那行「目录」写的就是实际路径。",
+            "「防录屏」打开后，悬浮控制台、右侧小面板、灵动岛在成片与截屏里都不出现 —— 要录下这些面板就别开它。应用设置页、控制台「录制」节与「开关」页是同一个开关，改哪边都立刻生效。",
+            "确认：录一段回看，面板在不在里面一目了然；在的话说明防录屏是关着的。选了麦克风却听不到声音，先看页上那行说明写的是哪一种原因。",
         ),
     ),
     Chapter(
@@ -862,20 +881,22 @@ internal fun QuickSwitchPage(win: OverlayWindow, store: EntropyStore, state: UiS
             recording,
             Modifier.fillMaxWidth()
         ) {
-            if (recording) ScreenRecord.stop(ctx)
-            else ctx.startActivity(
-                // 系统那条授权页只能由 Activity 发（MediaProjection 的 result 要回到 Activity 上），
-                // 浮窗发不出去。所以"开始"这一下必然把应用带到前台；录制本身在服务里跑，
-                // 停止不用再回应用。
-                Intent(ctx, MainActivity::class.java)
-                    .putExtra(MainActivity.EXTRA_RECORD, true)
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-            )
+            if (recording) ScreenRecord.stop(ctx) else requestRecord(ctx)
+        }
+        if (recording) {
+            Spacer(Modifier.height(5.dp))
+            val paused = ScreenRecord.paused.value
+            Chip(if (paused) "继续录制" else "暂停", paused, Modifier.fillMaxWidth()) {
+                if (paused) ScreenRecord.resume(ctx) else ScreenRecord.pause(ctx)
+            }
         }
         Spacer(Modifier.height(4.dp))
         Text(
-            if (recording) "%s · 目标 %d FPS".format(ScreenRecord.usedSize.value, ScreenRecord.usedFps.intValue)
-            else "「开始」会先把应用带到前台发一次系统授权。录起来之后停止、防录屏都在这块面板里，不用再回应用。",
+            if (recording) "%s · 目标 %d FPS · %s".format(
+                ScreenRecord.usedSize.value, ScreenRecord.usedFps.intValue,
+                ScreenRecord.audioLabel(ScreenRecord.audioMode.intValue))
+            else "「开始」会先把应用带到前台发一次系统授权。录起来之后停止、暂停、防录屏都在这块面板里；" +
+                "声音、分辨率、定时与成片在左栏「录制」节。",
             color = entropy.onScrim.copy(alpha = 0.55f), fontSize = 9.sp, lineHeight = 12.sp)
     }
     PanelCard("档位") {
@@ -986,6 +1007,205 @@ private fun ToggleRow(label: String, on: Boolean, onChange: (Boolean) -> Unit) {
             }
         }
     }
+}
+
+// ------------------------------------------------------------------ //
+// 左栏第七节：录制                                                      //
+// ------------------------------------------------------------------ //
+
+/**
+ * 录屏的整套控制。
+ *
+ * 右栏「开关」那张卡只留一下就能按到的开始/停止与防录屏；声音、分辨率、定时、
+ * 暂停和成片处理都在这一节 —— 那些项要看着读数改，右面板卡片内宽只有 74dp，
+ * 三枚档位挤进去连字都读不全。
+ *
+ * 状态全部来自 ScreenRecord 这份进程级快照，和应用里的「录制」页是同一份事实：
+ * 录着的时候切走再切回来，时长不会归零，成片列表也不会少一份。
+ */
+@Composable
+internal fun RecordSection(win: OverlayWindow, store: EntropyStore) {
+    // 偏好读依赖只建立在本节，理由同 PanelConsole 那段说明
+    store.prefsTick.intValue
+    val entropy = LocalEntropyColors.current
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val on = ScreenRecord.recording.value
+    val paused = ScreenRecord.paused.value
+    val sec = ScreenRecord.elapsedSec.intValue
+    var clips by remember { mutableStateOf<List<File>>(emptyList()) }
+    var refresh by remember { mutableIntStateOf(0) }
+    var busy by remember { mutableStateOf("") }
+    var pendingDelete by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(on, refresh) {
+        clips = withContext(Dispatchers.IO) { ScreenRecord.files(ctx) }
+    }
+
+    PanelCard(if (on) (if (paused) "录制已暂停" else "正在录制") else "屏幕录制") {
+        MetricGrid(listOf(
+            MetricData("时长", ScreenRecord.mmss(sec),
+                if (on) entropy.tempWarm else entropy.onScrim),
+            MetricData("已写", ScreenRecord.sizeText(ScreenRecord.writtenBytes.longValue), entropy.onScrim),
+            MetricData("实际 FPS", "%.1f".format(ScreenRecord.realFps.floatValue), entropy.tempCool),
+        ))
+        Spacer(Modifier.height(4.dp))
+        Chip(
+            if (on) "停止并保存" else "开始录制",
+            on, Modifier.fillMaxWidth()
+        ) {
+            if (on) ScreenRecord.stop(ctx) else requestRecord(ctx)
+        }
+        if (on) {
+            Spacer(Modifier.height(5.dp))
+            ChipRow {
+                Chip(if (paused) "继续" else "暂停", paused) {
+                    if (paused) ScreenRecord.resume(ctx) else ScreenRecord.pause(ctx)
+                }
+            }
+            Text(
+                "${ScreenRecord.usedSize.value} · 目标 ${ScreenRecord.usedFps.intValue} FPS · " +
+                    ScreenRecord.audioLabel(ScreenRecord.audioMode.intValue),
+                color = entropy.onScrim.copy(alpha = 0.8f), fontSize = 9.sp, lineHeight = 12.sp)
+            Text("暂停那一段不进成片：画面与声音的时间轴都会把它扣掉。",
+                color = entropy.onScrim.copy(alpha = 0.55f), fontSize = 9.sp, lineHeight = 12.sp)
+        }
+        ScreenRecord.note.value?.let {
+            Text(it, color = entropy.tempCool, fontSize = 9.sp, lineHeight = 12.sp, maxLines = 4)
+        }
+    }
+
+    PanelCard("声音") {
+        val mode = store.recordAudio.intValue
+        ChipRow {
+            Chip("不录声音", mode == ScreenRecord.AUDIO_NONE) {
+                store.setRecordAudio(ScreenRecord.AUDIO_NONE)
+            }
+            Chip("麦克风", mode == ScreenRecord.AUDIO_MIC) {
+                store.setRecordAudio(ScreenRecord.AUDIO_MIC)
+            }
+            Chip("系统内录", mode == ScreenRecord.AUDIO_INTERNAL,
+                enabled = ScreenRecord.internalSupported()) {
+                store.setRecordAudio(ScreenRecord.AUDIO_INTERNAL)
+            }
+        }
+        Text(
+            when {
+                mode == ScreenRecord.AUDIO_NONE -> "成片只有画面。"
+                !ScreenRecord.hasAudioPermission(ctx) ->
+                    "还没有麦克风权限：点「开始录制」时会先问一次，拒绝就只录画面。"
+                mode == ScreenRecord.AUDIO_INTERNAL ->
+                    "内录取的是别的应用正在播的声音，要对方允许采集；多数游戏把它关着，录不到就换麦克风。"
+                else -> "麦克风录的是这台机器周围的声音。"
+            },
+            color = entropy.onScrim.copy(alpha = 0.55f), fontSize = 9.sp, lineHeight = 12.sp)
+        if (on) Text("正在录制，换音源要等下一次开始。",
+            color = entropy.tempWarm, fontSize = 9.sp, lineHeight = 12.sp)
+    }
+
+    PanelCard("画面与时长") {
+        val scales = listOf(100, 75, 50)
+        Text("分辨率", color = entropy.onScrim.copy(alpha = 0.5f), fontSize = 9.sp)
+        Spacer(Modifier.height(4.dp))
+        ChipRow {
+            scales.forEachIndexed { i, s ->
+                Chip(if (i == 0) "原生" else "$s%", store.recordScalePct.intValue == s) {
+                    store.setRecordScalePct(s)
+                }
+            }
+        }
+        Spacer(Modifier.height(6.dp))
+        Text("定时停止", color = entropy.onScrim.copy(alpha = 0.5f), fontSize = 9.sp)
+        Spacer(Modifier.height(4.dp))
+        val mins = listOf(0, 1, 3, 5, 10)
+        ChipRow {
+            mins.forEach { m ->
+                Chip(if (m == 0) "不限" else "$m 分", store.recordAutoStopMin.intValue == m) {
+                    store.setRecordAutoStopMin(m)
+                }
+            }
+        }
+        Text(
+            "缩放按边长走，50% 是长宽各一半、体积约四分之一。" +
+                "帧率 ${if (store.recordFollowRefresh.value) "跟随刷新率" else "${store.recordFps.intValue} FPS"} · " +
+                "码率 ${if (store.recordBitrateMbps.intValue == 0) "自动" else "${store.recordBitrateMbps.intValue} Mbps"}" +
+                "，这两项在应用的设置页里改。",
+            color = entropy.onScrim.copy(alpha = 0.55f), fontSize = 9.sp, lineHeight = 12.sp)
+        if (on) Text("正在录制，这两档要等下一次开始才生效。",
+            color = entropy.tempWarm, fontSize = 9.sp, lineHeight = 12.sp)
+    }
+
+    PanelCard("防录屏") {
+        ToggleRow("浮窗与灵动岛不进成片", store.preventRecord.value) { store.setPreventRecord(it) }
+        Text(
+            if (store.preventRecord.value) "已开：这几块在成片与截屏里是黑块。拦得住录屏与截屏，拦不住对着屏幕拍照。"
+            else "未开：浮窗和灵动岛会一起被录进画面。",
+            color = entropy.onScrim.copy(alpha = 0.55f), fontSize = 9.sp, lineHeight = 12.sp)
+    }
+
+    PanelCard("成片") {
+        if (clips.isEmpty()) Text("还没有成片。",
+            color = entropy.onScrim.copy(alpha = 0.55f), fontSize = 9.sp)
+        // 只列最近四份：这一节在面板里，不是文件管理器；全量列表在应用的「录制」页
+        clips.take(4).forEach { f ->
+            Text(f.name, color = entropy.onScrim.copy(alpha = 0.85f), fontSize = 9.sp,
+                maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(ScreenRecord.sizeText(f.length()),
+                color = entropy.onScrim.copy(alpha = 0.45f), fontSize = 9.sp)
+            ChipRow {
+                Chip("播放", false) {
+                    val i = ScreenRecord.playIntent(ctx, f)
+                    if (i == null) busy = "拿不到文件的 content:// 地址"
+                    else runCatching { ctx.startActivity(i) }.onFailure { busy = "打不开播放器" }
+                }
+                Chip("分享", false) {
+                    val i = ScreenRecord.shareIntent(ctx, f)
+                    if (i == null) busy = "拿不到文件的 content:// 地址"
+                    else ctx.startActivity(Intent.createChooser(i, "分享录屏")
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                }
+                Chip("相册", false) {
+                    // 存相册要把整段视频拷一遍，绝不能在主线程上做：浮窗会整块卡住
+                    scope.launch {
+                        busy = withContext(Dispatchers.IO) { ScreenRecord.saveToGallery(ctx, f) }
+                    }
+                }
+                if (pendingDelete == f.absolutePath) {
+                    Chip("确认删除", true) {
+                        scope.launch {
+                            val ok = withContext(Dispatchers.IO) { ScreenRecord.delete(ctx, f) }
+                            busy = if (ok) "已删除 ${f.name}" else "删除失败"
+                            pendingDelete = null
+                            refresh++
+                        }
+                    }
+                    Chip("取消", false) { pendingDelete = null }
+                } else {
+                    Chip("删除", false) { pendingDelete = f.absolutePath }
+                }
+            }
+            Spacer(Modifier.height(6.dp))
+        }
+        if (busy.isNotEmpty()) Text(busy, color = entropy.tempCool, fontSize = 9.sp,
+            lineHeight = 12.sp, maxLines = 3)
+        ChipRow {
+            Chip("刷新", false) { refresh++ }
+            Chip("打开应用", false) { win.openApp() }
+        }
+    }
+}
+
+/**
+ * 系统那条授权页只能由 Activity 发（MediaProjection 的 result 要回到 Activity 上），
+ * 浮窗发不出去。所以"开始"这一下必然把应用带到前台；录起来之后停止、暂停、防录屏
+ * 都在这块面板里，不用再回应用。
+ */
+private fun requestRecord(ctx: android.content.Context) {
+    ctx.startActivity(
+        Intent(ctx, MainActivity::class.java)
+            .putExtra(MainActivity.EXTRA_RECORD, true)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+    )
 }
 
 // ------------------------------------------------------------------ //
